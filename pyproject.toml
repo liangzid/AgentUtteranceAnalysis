@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-utterance-analysis"
+version = "0.1.0"
+description = "Import, normalize, export, and analyze user utterances from AI-agent conversations."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "AgentUtteranceAnalysis contributors" }]
+dependencies = ["rich>=13.7,<14"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+aua = "agent_utterance_analysis.cli:main"
+agent-utterance-analysis = "agent_utterance_analysis.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]

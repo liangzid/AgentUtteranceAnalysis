@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from agent_utterance_analysis.discovery import discover_sources
+from agent_utterance_analysis.importer import iter_supported_files
 from agent_utterance_analysis.parsers import parse_opencode_sqlite
 
 
@@ -34,6 +35,19 @@ class OpenCodeParserTests(unittest.TestCase):
 
         self.assertIn(global_dir / "opencode.db", summary.files)
         self.assertIn(agent_dir, summary.roots)
+
+    def test_import_scan_skips_codex_sessions_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / ".codex"
+            (root / "sessions").mkdir(parents=True)
+            history = root / "history.jsonl"
+            rollout = root / "sessions" / "rollout.jsonl"
+            history.write_text('{"session_id":"abc","text":"Please review this."}\n', encoding="utf-8")
+            rollout.write_text('{"type":"response_item","payload":{"role":"user","content":"context"}}\n', encoding="utf-8")
+
+            files = list(iter_supported_files([root]))
+
+        self.assertEqual(files, [history])
 
 
 def create_opencode_db(path: Path) -> None:

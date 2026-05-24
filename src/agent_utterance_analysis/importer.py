@@ -7,11 +7,13 @@ from pathlib import Path
 from typing import Iterable
 
 from .models import SourceFile
+from .language import is_probably_english
 from .parsers import parse_file
 from .storage import Store
 
 SUPPORTED_SUFFIXES = {".json", ".jsonl", ".ndjson", ".md", ".markdown", ".txt", ".log", ".db", ".sqlite"}
 EXCLUDED_DIR_NAMES = {
+    ".docker",
     ".git",
     ".hg",
     ".svn",
@@ -20,8 +22,13 @@ EXCLUDED_DIR_NAMES = {
     "node_modules",
     "snapshot",
     "bin",
+    "containers",
     "dist",
+    "docker",
     "build",
+    "overlay2",
+    "telemetry",
+    "volumes",
 }
 AGENT_HINTS = {
     "openclaw": "openclaw",
@@ -50,7 +57,12 @@ class ImportSummary:
         return ImportSummary(**values)
 
 
-def import_paths(paths: Iterable[str | Path], store: Store, force: bool = False) -> ImportSummary:
+def import_paths(
+    paths: Iterable[str | Path],
+    store: Store,
+    force: bool = False,
+    english_only: bool = False,
+) -> ImportSummary:
     summary = ImportSummary()
     for path in iter_supported_files(paths):
         summary = summary.add(scanned_files=1)
@@ -60,6 +72,8 @@ def import_paths(paths: Iterable[str | Path], store: Store, force: bool = False)
             continue
         try:
             utterances = parse_file(path, source.agent)
+            if english_only:
+                utterances = [item for item in utterances if is_probably_english(item.text)]
             count = store.replace_source(source, utterances)
             summary = summary.add(imported_files=1, utterances=count)
         except Exception:
@@ -71,13 +85,14 @@ def iter_supported_files(paths: Iterable[str | Path]) -> Iterable[Path]:
     for raw_path in paths:
         path = Path(raw_path).expanduser()
         if path.is_file() and is_supported_file(path):
-            yield path
+            if not is_ignored(path):
+                yield path
         elif path.is_dir():
             for root, dirnames, filenames in os.walk(path):
                 dirnames[:] = [dirname for dirname in dirnames if dirname not in EXCLUDED_DIR_NAMES]
                 for filename in sorted(filenames):
                     child = Path(root) / filename
-                    if child.is_file() and is_supported_file(child):
+                    if child.is_file() and is_supported_file(child) and not is_ignored(child):
                         yield child
 
 
@@ -111,6 +126,9 @@ def is_supported_file(path: Path) -> bool:
 
 
 def is_ignored(path: Path) -> bool:
+    parts = set(path.parts)
+    if ".codex" in parts and "sessions" in parts:
+        return True
     return any(part in EXCLUDED_DIR_NAMES for part in path.parts)
 
 

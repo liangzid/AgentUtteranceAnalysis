@@ -91,6 +91,11 @@ def add_discovery_args(parser: argparse.ArgumentParser) -> None:
         default=3,
         help="Maximum depth below each project for hidden agent directories.",
     )
+    parser.add_argument(
+        "--english-only",
+        action="store_true",
+        help="Import only English-dominant user utterances.",
+    )
 
 
 def command_import(args: argparse.Namespace) -> int:
@@ -99,7 +104,7 @@ def command_import(args: argparse.Namespace) -> int:
         paths = resolve_input_paths(args)
     with ui.status("Importing utterances incrementally"):
         with Store(args.db) as store:
-            summary = import_paths(paths, store, force=args.force)
+            summary = import_paths(paths, store, force=args.force, english_only=args.english_only)
             counts = store.counts()
     ui.summary(
         "Import complete",
@@ -156,7 +161,7 @@ def command_run(args: argparse.Namespace) -> int:
         paths = resolve_input_paths(args)
     with Store(args.db) as store:
         with ui.status("Importing utterances incrementally"):
-            summary = import_paths(paths, store, force=args.force)
+            summary = import_paths(paths, store, force=args.force, english_only=args.english_only)
         with ui.status("Writing Markdown export"):
             export_count = export_rows(store.iter_utterances(), args.export, "markdown")
         with ui.status("Writing analysis report"):

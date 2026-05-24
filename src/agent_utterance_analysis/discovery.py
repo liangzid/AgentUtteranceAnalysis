@@ -30,6 +30,7 @@ GLOBAL_CANDIDATES = (
     ".kilocode",
 )
 EXCLUDED_DIR_NAMES = {
+    ".docker",
     ".git",
     ".hg",
     ".svn",
@@ -38,8 +39,13 @@ EXCLUDED_DIR_NAMES = {
     "node_modules",
     "snapshot",
     "bin",
+    "containers",
     "dist",
+    "docker",
     "build",
+    "overlay2",
+    "telemetry",
+    "volumes",
 }
 
 

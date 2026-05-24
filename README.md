@@ -77,6 +77,12 @@ Run a full pipeline:
 uv run aua run --db data/utterances.sqlite --export exports/utterances.md --report reports/analysis.md
 ```
 
+Analyze only English-dominant user utterances:
+
+```bash
+uv run aua run --english-only --project-glob "~/code/*" --db data/english_utterances.sqlite --export exports/english_utterances.md --report reports/english_analysis.md
+```
+
 `import` and `run` default to auto-discovery when no paths are supplied. Use `--project-glob` to control where project-level agent folders are searched, such as `--project-glob "~/code/*"`.
 
 ## Supported Input Shapes
@@ -103,7 +109,7 @@ The discovery command currently checks common global locations and project-local
 - `~/.kilo`, `~/.kilo-code`, `~/.kilocode`
 - `.codex`, `.claude`, `.opencode`, `.openclaw`, `.kilo`, `.kilo-code`, `.kilocode` under project globs such as `~/code/*`
 
-Large dependency and VCS directories such as `node_modules`, `.git`, `snapshot`, `dist`, and `build` are skipped.
+Large dependency, container, telemetry, generated context, and VCS directories such as `node_modules`, `.git`, `snapshot`, `.docker`, `docker`, `containers`, `overlay2`, `volumes`, `telemetry`, `.codex/sessions`, `dist`, and `build` are skipped.
 
 ## Project Layout
 

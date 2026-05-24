@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from json import JSONDecodeError
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -10,6 +11,7 @@ from typing import Any, Iterable
 from .models import Utterance
 
 USER_ROLES = {"user", "human", "me", "you", "requester", "client"}
+KNOWN_ROLES = USER_ROLES | {"assistant", "agent", "system", "developer", "tool"}
 CONVERSATION_KEYS = ("messages", "conversation", "turns", "items", "entries")
 TEXT_KEYS = ("content", "text", "message", "body", "prompt")
 ROLE_KEYS = ("role", "speaker", "author", "from", "type", "kind")
@@ -116,7 +118,10 @@ def parse_jsonl(raw: str, path: Path, agent: str) -> list[Utterance]:
     for line_number, line in enumerate(raw.splitlines(), start=1):
         if not line.strip():
             continue
-        data = json.loads(line)
+        try:
+            data = json.loads(line)
+        except JSONDecodeError:
+            continue
         utterances = _utterances_from_json_value(data, path, agent, conversation_hint=f"line-{line_number}")
         output.extend(utterances)
     return _renumber(output)
@@ -196,6 +201,20 @@ def _utterances_from_json_value(
                     metadata={"parser": "json", "role": role},
                 )
             )
+    if not utterances and isinstance(data, dict) and _is_codex_history_entry(data, path):
+        text = _extract_text(data)
+        if text:
+            utterances.append(
+                Utterance(
+                    source_path=str(path),
+                    source_agent=agent,
+                    conversation_id=str(data.get("session_id") or conversation_hint or path.stem),
+                    turn_index=0,
+                    text=text,
+                    timestamp=_epoch_to_iso(data.get("ts")),
+                    metadata={"parser": "codex_history"},
+                )
+            )
     if not utterances and isinstance(data, dict) and _extract_role(data) in USER_ROLES:
         text = _extract_text(data)
         if text:
@@ -250,9 +269,14 @@ def _extract_role(message: Any) -> str | None:
             value = value.get("role") or value.get("name") or value.get("type")
         if isinstance(value, str):
             role = value.strip().lower()
+            if key in {"type", "kind"} and role not in KNOWN_ROLES and role not in {"user_message", "human_message"}:
+                continue
             if role in {"user_message", "human_message"}:
                 return "user"
             return role
+    payload = message.get("payload")
+    if isinstance(payload, dict):
+        return _extract_role(payload)
     return None
 
 
@@ -266,6 +290,20 @@ def _extract_text(message: Any) -> str:
         text = _coerce_text(value)
         if text:
             return text
+    nested_message = message.get("message")
+    if isinstance(nested_message, dict):
+        nested_role = _extract_role(nested_message)
+        if not nested_role or nested_role in USER_ROLES:
+            text = _extract_text(nested_message)
+            if text:
+                return text
+    payload = message.get("payload")
+    if isinstance(payload, dict):
+        payload_role = _extract_role(payload)
+        if not payload_role or payload_role in USER_ROLES:
+            text = _extract_text(payload)
+            if text:
+                return text
     return ""
 
 
@@ -315,6 +353,20 @@ def _millis_to_iso(value: Any) -> str | None:
     if number > 10_000_000_000:
         number = number / 1000
     return datetime.fromtimestamp(number, tz=timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _epoch_to_iso(value: Any) -> str | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number > 10_000_000_000:
+        number = number / 1000
+    return datetime.fromtimestamp(number, tz=timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _is_codex_history_entry(data: dict[str, Any], path: Path) -> bool:
+    return path.name == "history.jsonl" and "session_id" in data and "text" in data
 
 
 def _renumber(utterances: list[Utterance]) -> list[Utterance]:

@@ -10,6 +10,7 @@
 //     Created: 16 June 2025
 // ======================================================================
 
+use agentrace_storage::Store;
 use std::net::SocketAddr;
 
 #[tokio::main]
@@ -21,8 +22,12 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|p| p.parse().ok())
         .unwrap_or(3000);
 
+    let db_path = std::env::var("AGENTRACE_DB")
+        .unwrap_or_else(|_| "data/agentrace.sqlite".to_string());
+
+    let store = Store::open(&db_path)?;
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    agentrace_server::serve(addr).await?;
+    agentrace_server::serve(addr, store).await?;
 
     Ok(())
 }

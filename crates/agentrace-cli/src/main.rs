@@ -66,19 +66,26 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Discover { home } => run_discover(&home),
         Commands::Import { paths, force } => run_import(&cli.db, &paths, force),
-        Commands::Analyze => {
-            println!("[stub] analyze — will run analysis engine");
-            Ok(())
-        }
+        Commands::Analyze => run_analyze(&cli.db),
         Commands::Serve { port } => {
+            let store = Store::open(&cli.db)?;
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
                 let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-                agentrace_server::serve(addr).await
+                agentrace_server::serve(addr, store).await
             })?;
             Ok(())
         }
     }
+}
+
+fn run_analyze(db_path: &str) -> anyhow::Result<()> {
+    let store = Store::open(db_path)?;
+    let engine = agentrace_analysis::AnalysisEngine::new(store);
+    let result = engine.run()?;
+
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
 }
 
 fn run_discover(home: &str) -> anyhow::Result<()> {
@@ -99,7 +106,7 @@ fn run_discover(home: &str) -> anyhow::Result<()> {
 }
 
 fn run_import(db_path: &str, paths: &[String], force: bool) -> anyhow::Result<()> {
-    let mut store = Store::open(db_path)?;
+    let store = Store::open(db_path)?;
     let mut scanned = 0u64;
     let mut imported = 0u64;
     let mut skipped = 0u64;
@@ -111,7 +118,7 @@ fn run_import(db_path: &str, paths: &[String], force: bool) -> anyhow::Result<()
 
         if path.is_file() {
             scanned += 1;
-            match import_file(&mut store, path, force) {
+            match import_file(&store, path, force) {
                 Ok(count) => {
                     imported += count;
                     println!("  imported {} utterances from {}", count, path.display());
@@ -147,7 +154,7 @@ fn run_import(db_path: &str, paths: &[String], force: bool) -> anyhow::Result<()
                 }
 
                 scanned += 1;
-                match import_file(&mut store, file_path, force) {
+                match import_file(&store, file_path, force) {
                     Ok(count) => {
                         imported += count;
                         if count > 0 {
@@ -175,7 +182,7 @@ fn run_import(db_path: &str, paths: &[String], force: bool) -> anyhow::Result<()
 }
 
 /// Import a single file: compute hash, check if changed, parse, and store.
-fn import_file(store: &mut Store, path: &Path, force: bool) -> anyhow::Result<u64> {
+fn import_file(store: &Store, path: &Path, force: bool) -> anyhow::Result<u64> {
     // Compute SHA256 of file content
     let content = std::fs::read(path)?;
     let mut hasher = Sha256::new();

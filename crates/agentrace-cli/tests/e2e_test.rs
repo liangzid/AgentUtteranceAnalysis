@@ -1,7 +1,6 @@
 // ======================================================================
 // End-to-end integration tests for the agentrace CLI binary.
 //
-// These tests run the actual compiled binary and verify output.
 // Build with: cargo build -p agentrace-cli
 // Then run:   cargo test -p agentrace-cli --test e2e_test
 // ======================================================================
@@ -10,11 +9,9 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn binary_path() -> PathBuf {
-    // CARGO_BIN_EXE_agentrace_cli is set by cargo when running integration tests
     if let Ok(path) = std::env::var("CARGO_BIN_EXE_agentrace_cli") {
         return PathBuf::from(path);
     }
-    // Fallback: look relative to the OUT_DIR or CARGO_MANIFEST_DIR
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
     workspace_root.join("target/debug/agentrace-cli")
@@ -53,44 +50,46 @@ fn e2e_cli_discover_runs() {
         .expect("binary should run");
 
     assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("[stub] discover"));
 }
 
 #[test]
 fn e2e_cli_import_runs() {
+    let tmp = std::env::temp_dir().join("agentrace_e2e_test.sqlite");
+    let _ = std::fs::remove_file(&tmp);
+
     let output = Command::new(binary_path())
-        .args(["import", "/tmp"])
+        .args(["import", "--db", tmp.to_str().unwrap(), "examples/"])
         .output()
         .expect("binary should run");
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("[stub] import"));
+    assert!(stdout.contains("imported"));
+
+    let _ = std::fs::remove_file(&tmp);
 }
 
 #[test]
 fn e2e_cli_analyze_runs() {
-    let output = Command::new(binary_path())
-        .arg("analyze")
+    let tmp = std::env::temp_dir().join("agentrace_e2e_analyze.sqlite");
+    let _ = std::fs::remove_file(&tmp);
+
+    // First import, then analyze
+    Command::new(binary_path())
+        .args(["import", "--db", tmp.to_str().unwrap(), "examples/"])
         .output()
-        .expect("binary should run");
+        .unwrap();
+
+    let output = Command::new(binary_path())
+        .args(["analyze", "--db", tmp.to_str().unwrap()])
+        .output()
+        .expect("analyze should run");
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("[stub] analyze"));
-}
+    assert!(stdout.contains("stats") || stdout.contains("utterance_count"));
 
-#[test]
-fn e2e_cli_serve_stub_runs() {
-    let output = Command::new(binary_path())
-        .arg("serve")
-        .output()
-        .expect("binary should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("[stub] serve"));
+    let _ = std::fs::remove_file(&tmp);
 }
 
 #[test]

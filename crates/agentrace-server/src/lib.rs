@@ -13,5 +13,4 @@
 mod router;
 pub mod api;
 
-pub use router::build_router;
 pub use router::serve;

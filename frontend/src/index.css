@@ -1,0 +1,22 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.5rem;
+}
+
+body {
+  margin: 0;
+  background: #0a0a0f;
+  color: #e0e0e0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Deck.gl canvas fills the viewport */
+#root {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}

@@ -17,3 +17,7 @@ tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+sha2.workspace = true
+chrono.workspace = true
+walkdir = "2"
+shellexpand = "3"

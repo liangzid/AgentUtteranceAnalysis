@@ -39,6 +39,30 @@ impl Store {
     }
 
     /// KEY REVIEW POINT: Schema design — tables must support all analysis dimensions
+
+    /// Check if a source file on disk matches the stored record.
+    /// Returns true if hash, mtime, and size are all unchanged.
+    pub fn source_is_current(&self, source: &SourceFile) -> Result<bool> {
+        let conn = self.conn();
+        let result: Option<(String, i64, i64)> = conn
+            .query_row(
+                "SELECT sha256, mtime_ns, size FROM source_files WHERE path = ?1",
+                rusqlite::params![source.path],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .ok();
+
+        match result {
+            Some((stored_hash, stored_mtime, stored_size)) => {
+                Ok(stored_hash == source.sha256
+                    && stored_mtime == source.mtime_ns
+                    && stored_size == source.size as i64)
+            }
+            None => Ok(false),
+        }
+    }
+
+    /// KEY REVIEW POINT: Schema design — tables must support all analysis dimensions
     /// and cross-filtering by agent, model, and task type.
     fn migrate(conn: &rusqlite::Connection) -> Result<()> {
         conn.execute_batch(

@@ -1,0 +1,62 @@
+# Agentrace 重设计 — 讨论记录 & 实施计划
+
+## 最终决策汇总
+
+| # | 决策点 | 结果 |
+|---|--------|------|
+| 1 | 项目名称 | **Agentrace** |
+| 2 | 核心目标 | 全栈分析平台：交互行为 + Safety + 知识域演化 + 自我提升 |
+| 3 | 语言 | 全 Rust（CLI + 分析引擎 + Web Server） |
+| 4 | 3D 可视化 | Deck.gl + WebGL |
+| 5 | 前端 | React + TypeScript + Vite，打包嵌入 Rust binary |
+| 6 | UI 组件库 | shadcn/ui + Tailwind CSS |
+| 7 | Rust Web 框架 | axum + tokio |
+| 8 | Embedding | 本地 ONNX（all-MiniLM-L6-v2, 384d），ort crate |
+| 9 | 存储 | SQLite + sqlite-vec 扩展 |
+| 10 | 洞察形态 | Dashboard + 周期性报告 |
+| 11 | 3D 交互 | 全部 7 项 |
+| 12 | 触发方式 | CLI + Daemon 两者 |
+| 13 | 交叉分析 | GROUP BY agent × model × task |
+| 14 | Workspace | 多 crate 结构 |
+| 15 | 构建 | 前端嵌入 Rust binary，单一可执行文件 |
+
+## Workspace 结构
+
+```
+agentrace/
+├── Cargo.toml                  # workspace root
+├── crates/
+│   ├── agentrace-core/         # 共享数据模型
+│   ├── agentrace-discovery/    # Agent 存储发现
+│   ├── agentrace-parser/       # 多格式解析器
+│   ├── agentrace-storage/      # SQLite + sqlite-vec 持久化
+│   ├── agentrace-embedding/    # ONNX embedding 引擎
+│   ├── agentrace-analysis/     # 分析引擎
+│   │   ├── safety/
+│   │   ├── behavior/
+│   │   ├── knowledge/
+│   │   └── self_improvement/
+│   ├── agentrace-cli/          # CLI 入口（clap）
+│   └── agentrace-server/       # axum Web 服务器 + Daemon
+├── frontend/                   # React + Vite + Deck.gl
+└── records/                    # 设计讨论记录
+```
+
+## Phase 1 完成状态 ✅
+
+- [x] Rust workspace 初始化（8 crate, 全部编译通过）
+- [x] agentrace-core：Utterance, SourceFile, Conversation, AgentKind, TaskKind 等
+- [x] agentrace-storage：SQLite schema（source_files, utterances, embeddings）
+- [x] agentrace-embedding：EmbeddingProvider trait + OnnxEmbeddingProvider stub
+- [x] agentrace-server：axum router（/api/v1/health, /api/v1/stats），frontend SPA 嵌入
+- [x] agentrace-cli：clap derive（discover, import, analyze, serve）
+- [x] 前端：React + Tailwind + Deck.gl 3D 点云 demo
+- [x] 构建管线：cargo build --release 产出两个 binary
+
+## Phase 2: 数据管线（下一步）
+
+- [ ] agentrace-discovery：移植 Python discovery.py 的扫描逻辑
+- [ ] agentrace-parser：移植 JSON/JSONL/Markdown/SQLite 解析器
+- [ ] agentrace-cli import：对接 discovery + parser + storage
+- [ ] agentrace-storage：source_is_current() 增量导入逻辑
+- [ ] 用 samples/examples 测试端到端导入

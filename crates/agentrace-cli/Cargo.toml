@@ -1,0 +1,19 @@
+[package]
+name = "agentrace-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+agentrace-core = { path = "../agentrace-core" }
+agentrace-discovery = { path = "../agentrace-discovery" }
+agentrace-parser = { path = "../agentrace-parser" }
+agentrace-storage = { path = "../agentrace-storage" }
+agentrace-analysis = { path = "../agentrace-analysis" }
+agentrace-server = { path = "../agentrace-server" }
+clap.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

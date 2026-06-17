@@ -1,134 +1,198 @@
-# AgentUtteranceAnalysis
+# Agentrace
 
-AgentUtteranceAnalysis imports your dialogue utterances with AI coding agents, normalizes them into one local database, exports them for review, and analyzes the properties and English naturalness of your own messages.
+Track, analyze, and visualize your AI coding agent interactions. Agentrace imports your conversation logs from Claude Code, Codex, OpenCode, and other AI coding tools, builds a 3D knowledge graph with semantic embeddings, and uses LLM-powered coaching to help you become a better AI collaborator.
 
-The first version is intentionally local-first:
+## Features
 
-- Batch import from folders or files.
-- Incremental import using file hashes and modification times.
-- Flexible parsing for JSON, JSONL, Markdown, and plain text exports.
-- Agent/source detection for tools such as OpenClaw, Claude Code, OpenCode, Codex, Kilo Code, and other agent logs.
-- Export to JSONL, CSV, or Markdown.
-- Analysis reports for utterance length, questions/requests, politeness markers, language quality warnings, and distribution by agent/date/source.
+### Data Pipeline
 
-## Install
+- **Auto-discovery** — scans `~/.codex`, `~/.claude`, `~/.opencode`, and 7+ other agent stores
+- **Multi-format parser** — JSON, JSONL, Markdown, plain text, and OpenCode SQLite
+- **Incremental import** — SHA256-based dedup; re-import skips unchanged files
 
-From this project directory:
+### Analysis
 
-```bash
-uv sync --extra dev
-```
+- **Heuristic stats** — word/character counts, agent distribution, time distribution
+- **Property detection** — questions, requests, politeness markers, code blocks, long-context prompts
+- **English naturalness** — regex-based style warnings (spelling, phrasing, sentence complexity)
+- **DeepSeek Coaching** — LLM-powered interaction coach analyzes each conversation turn:
+  - What you did well (positive reinforcement)
+  - What could be improved (actionable feedback)
+  - A better way to phrase the prompt
+  - Hidden tool/command that could solve the problem directly
+  - Knowledge gaps to fill
+  - Clarity score (1–5)
+- **Coach's Summary** — aggregate insights across all conversations: dominant interaction style, common issues, top tips
 
-You can also install with pip:
+### 3D Knowledge Graph
 
-```bash
-python -m pip install -e ".[dev]"
-```
+- **Semantic embeddings** — 384-dimensional BERT embeddings via [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (local, no API calls)
+- **PCA projection** — dimensionality reduction to 3D coordinates with variance explained
+- **Similarity edges** — connect semantically related utterances in the graph
+- **Interactive Dashboard** — Deck.gl WebGL renderer with:
+  - Rotate / zoom / pitch 3D navigation
+  - Click-to-inspect utterance detail popup
+  - Color mode switcher: agent / time / properties
+  - Time range dual-slider filter
+  - Conversation trajectory lines
+  - Agent distribution legend
+
+### Single Binary
+
+Frontend (React + TypeScript + Vite) is embedded into the Rust binary via `rust-embed`. One binary contains the full dashboard.
 
 ## Quick Start
 
-Find likely agent dialogue stores automatically:
+### Build
 
 ```bash
-uv run aua discover
-uv run aua discover --project-glob "~/code/*"
+cargo build --release -p agentrace-cli
+cargo build --release -p agentrace-server
 ```
 
-The CLI uses themed tables and spinner animations by default:
+### Import your conversations
 
 ```bash
-uv run aua discover --theme dark
-uv run aua discover --theme light
-uv run aua discover --theme mono
-uv run aua discover --plain
+# Auto-discover agent stores
+agentrace-cli discover
+
+# Import from discovered locations
+agentrace-cli import ~/code
+
+# Import specific files/folders
+agentrace-cli import ~/.codex/history.jsonl examples/
+
+# Import with semantic embeddings (for knowledge graph)
+agentrace-cli import --embed ~/.claude/projects/
+
+# Force re-import changed files
+agentrace-cli import --force ~/.codex/
 ```
 
-Use `--plain` for logs, scripts, or terminals where ANSI styling is not wanted.
-
-Import discovered conversations:
+### Analyze
 
 ```bash
-uv run aua import --db data/utterances.sqlite
+# Basic stats analysis
+agentrace-cli analyze
+
+# LLM coaching analysis (requires DEEPSEEK_API_KEY env var)
+agentrace-cli analyze --coach
 ```
 
-Import conversations from one or more explicit folders:
+### Knowledge Graph
 
 ```bash
-uv run aua import ~/path/to/agent/logs --db data/utterances.sqlite
+# Build 3D knowledge graph from embeddings
+agentrace-cli build-graph
 ```
 
-Export all normalized utterances:
+### Dashboard
 
 ```bash
-uv run aua export --db data/utterances.sqlite --format markdown --output exports/utterances.md
-uv run aua export --db data/utterances.sqlite --format jsonl --output exports/utterances.jsonl
-uv run aua export --db data/utterances.sqlite --format csv --output exports/utterances.csv
+# Start web dashboard
+agentrace-cli serve
+
+# Or run server standalone
+AGENTRACE_DB=data/agentrace.sqlite agentrace-server
 ```
 
-Analyze your utterances:
+Open `http://localhost:3000` to see the 3D knowledge graph.
+
+## Supported Input Formats
+
+The parser extracts user utterances from:
+
+- JSON objects with `messages`, `conversation`, `turns`, or `items` arrays
+- JSONL files (one message per line)
+- Markdown transcripts (`## User`, `User:`, `Human:` labels)
+- Plain text transcripts with speaker labels
+- OpenCode SQLite stores (`opencode.db`)
+- Codex `history.jsonl` format
+
+Agent detection from path hints: `codex`, `claude-code`, `opencode`, `openclaw`, `kilo-code`.
+
+## DeepSeek Coaching
+
+Set your API key:
 
 ```bash
-uv run aua analyze --db data/utterances.sqlite --output reports/analysis.md
+export DEEPSEEK_API_KEY=sk-...
 ```
 
-Run a full pipeline:
+Then run coaching analysis:
 
 ```bash
-uv run aua run --db data/utterances.sqlite --export exports/utterances.md --report reports/analysis.md
+agentrace-cli analyze --coach
 ```
 
-Analyze only English-dominant user utterances:
+Each user utterance is paired with the next AI assistant response and sent to DeepSeek for coaching feedback:
+
+```json
+{
+  "intent": "debug a Rust compilation error",
+  "what_worked": "Provided the error code E0308 and relevant code snippet",
+  "could_improve": "Missing the full Cargo.toml — the error might be in dependencies",
+  "better_prompt": "I'm getting E0308 in Rust 1.85 with this code: ... and Cargo.toml: ...",
+  "hidden_tip": "Try `cargo expand` to see the desugared code before asking the LLM",
+  "knowledge_gap": "Rust type inference and turbofish syntax",
+  "interaction_style": "vague",
+  "clarity_score": 3
+}
+```
+
+## Project Structure
+
+```
+agentrace/
+├── crates/
+│   ├── agentrace-core/         # Data models (Utterance, SourceFile, AgentKind)
+│   ├── agentrace-discovery/    # Agent store auto-discovery
+│   ├── agentrace-parser/       # JSON/JSONL/Markdown/text/SQLite parsers
+│   ├── agentrace-storage/      # SQLite persistence + sqlite-vec (embeddings)
+│   ├── agentrace-embedding/    # BERT embeddings via candle (all-MiniLM-L6-v2)
+│   ├── agentrace-llm/          # DeepSeek API client (coaching analysis)
+│   ├── agentrace-analysis/     # Stats, heuristics, PCA graph, coaching engine
+│   ├── agentrace-cli/          # CLI entrypoint (clap)
+│   └── agentrace-server/       # axum web server + embedded frontend
+├── frontend/                   # React + TypeScript + Vite + Deck.gl
+├── examples/                   # Sample conversation data
+└── records/                    # Design discussion records
+```
+
+## Installation
+
+Requires Rust 1.85+ and Node.js 22+.
 
 ```bash
-uv run aua run --english-only --project-glob "~/code/*" --db data/english_utterances.sqlite --export exports/english_utterances.md --report reports/english_analysis.md
+git clone <repo>
+cd AgentUtteranceAnalysis
+
+# Build CLI + server
+cargo build --release -p agentrace-cli -p agentrace-server
+
+# Binaries at target/release/agentrace-cli and target/release/agentrace-server
 ```
 
-`import` and `run` default to auto-discovery when no paths are supplied. Use `--project-glob` to control where project-level agent folders are searched, such as `--project-glob "~/code/*"`.
+## Tech Stack
 
-## Supported Input Shapes
+| Layer | Technology |
+|-------|-----------|
+| Language | Rust (edition 2024) |
+| Web Server | axum + tokio |
+| Database | SQLite (rusqlite, bundled) |
+| Vector Search | sqlite-vec |
+| Embeddings | candle + all-MiniLM-L6-v2 (384-dim BERT) |
+| LLM Coaching | DeepSeek API (OpenAI-compatible) |
+| Frontend | React 19 + TypeScript + Vite |
+| 3D Rendering | Deck.gl + WebGL |
+| UI Components | shadcn/ui + Tailwind CSS |
 
-The importer is deliberately tolerant. It extracts user utterances from common patterns:
+## Tests
 
-- JSON objects with `messages`, `conversation`, `turns`, or `items`.
-- Message fields such as `role`, `speaker`, `author`, `type`, `content`, `text`, or `message`.
-- JSONL files with one message or conversation object per line.
-- Markdown transcripts with headings such as `## User`, `### Human`, `User:`, or `You:`.
-- Plain text transcripts with speaker labels.
-- OpenCode's SQLite store at `~/.local/share/opencode/opencode.db`.
-
-Files that cannot be parsed are skipped and reported in the import summary.
-
-## Auto-Discovery
-
-The discovery command currently checks common global locations and project-local hidden agent directories:
-
-- `~/.local/share/opencode/opencode.db`
-- `~/.local/share/opencode/log`
-- `~/.codex`, `~/.claude`, `~/.openclaw`
-- `~/.config/opencode`, `~/.config/claude`
-- `~/.kilo`, `~/.kilo-code`, `~/.kilocode`
-- `.codex`, `.claude`, `.opencode`, `.openclaw`, `.kilo`, `.kilo-code`, `.kilocode` under project globs such as `~/code/*`
-
-Large dependency, container, telemetry, generated context, and VCS directories such as `node_modules`, `.git`, `snapshot`, `.docker`, `docker`, `containers`, `overlay2`, `volumes`, `telemetry`, `.codex/sessions`, `dist`, and `build` are skipped.
-
-## Project Layout
-
-```text
-src/agent_utterance_analysis/
-  cli.py          Command line interface.
-  discovery.py    Auto-discovery for global and project-local agent stores.
-  importer.py     Batch and incremental source scanning.
-  parsers.py      JSON/JSONL/Markdown/text extraction.
-  models.py       Normalized data model.
-  storage.py      SQLite persistence.
-  export.py       JSONL, CSV, and Markdown output.
-  analysis.py     Distribution and English-quality analysis.
-tests/
-  test_*.py       Core behavior tests.
-examples/
-  sample_codex.json
+```bash
+cargo test --lib    # 76 unit/integration tests
 ```
 
-## Notes
+## License
 
-The English analysis is heuristic in this initial version. It is useful for finding likely unnatural phrasing, typo-prone patterns, overlong requests, repeated wording, and distribution trends. A later version can add an optional LLM reviewer for deeper grammar and naturalness feedback.
+MIT

@@ -6,7 +6,7 @@
 // Zero C++ dependencies — works on any glibc version.
 // ======================================================================
 
-use crate::{Embedding, EmbeddingProvider, EMBEDDING_DIM, MODEL_NAME};
+use crate::{Embedding, EmbeddingProvider, EMBEDDING_DIM};
 use anyhow::{Context, Result};
 use candle_core::{Device, Tensor};
 use candle_nn::VarBuilder;
@@ -109,13 +109,15 @@ impl OnnxEmbeddingProvider {
 
         let masked_output = output.mul(&mask_expanded)?;
         let summed = masked_output.sum(1)?; // [batch, hidden]
-        let counts = mask_f32.sum(1)?; // [batch, 1]
-        let counts_safe = (counts + 1e-9)?;
-        let mean_pooled = summed.broadcast_div(&counts_safe)?;
+        let counts = mask_f32.sum(1)?; // [batch]
+        let counts_unsqueezed = counts.unsqueeze(1)?; // [batch, 1]
+        let counts_safe = (counts_unsqueezed + 1e-9)?;
+        let mean_pooled = summed.broadcast_div(&counts_safe)?; // [batch, hidden] / [batch, 1] ✓
 
         // L2 normalize
-        let norms = mean_pooled.sqr()?.sum(1)?.sqrt()?; // [batch, 1]
-        let normalized = mean_pooled.broadcast_div(&(norms + 1e-9)?)?;
+        let norms = mean_pooled.sqr()?.sum(1)?.sqrt()?; // [batch]
+        let norms_unsqueezed = norms.unsqueeze(1)?; // [batch, 1]
+        let normalized = mean_pooled.broadcast_div(&(norms_unsqueezed + 1e-9)?)?;
 
         // Convert to Vec<Vec<f32>>
         let flat: Vec<f32> = normalized.flatten_all()?.to_vec1()?;

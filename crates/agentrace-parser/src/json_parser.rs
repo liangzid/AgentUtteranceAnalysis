@@ -76,6 +76,7 @@ pub fn utterances_from_json_value(
             if role.is_none() || !USER_ROLES.contains(&role.as_ref().unwrap().as_str()) {
                 continue;
             }
+            let role_str = role.clone().unwrap();
             let text = extract_text(message);
             if text.is_empty() {
                 continue;
@@ -83,7 +84,7 @@ pub fn utterances_from_json_value(
             let ts = extract_timestamp(message);
             let mut metadata = HashMap::new();
             metadata.insert("parser".into(), "json".into());
-            metadata.insert("role".into(), role.unwrap());
+            metadata.insert("role".into(), role_str.clone());
 
             // Try to extract model info
             let model = extract_model_info(message);
@@ -93,6 +94,7 @@ pub fn utterances_from_json_value(
                 source_agent: agent.clone(),
                 conversation_id: conversation_id.clone(),
                 turn_index: index as u32,
+                role: role_str,
                 text,
                 timestamp: ts,
                 model,
@@ -119,6 +121,7 @@ pub fn utterances_from_json_value(
                     source_agent: agent.clone(),
                     conversation_id: conv_id,
                     turn_index: 0,
+                    role: "user".into(),
                     text,
                     timestamp: ts,
                     model: None,
@@ -144,6 +147,7 @@ pub fn utterances_from_json_value(
                         source_agent: agent.clone(),
                         conversation_id: fallback_id.to_string(),
                         turn_index: 0,
+                        role: r.clone(),
                         text,
                         timestamp: extract_timestamp(data),
                         model: None,
@@ -433,6 +437,7 @@ pub fn renumber(utterances: &[Utterance]) -> Vec<Utterance> {
         .enumerate()
         .map(|(index, item)| Utterance {
             turn_index: index as u32,
+            role: item.role.clone(),
             ..item.clone()
         })
         .collect()

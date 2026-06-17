@@ -149,6 +149,7 @@ pub fn parse_opencode_sqlite(path: &Path, agent: &AgentKind) -> Vec<Utterance> {
             source_agent: agent.clone(),
             conversation_id: item.session_id.clone(),
             turn_index: index as u32,
+            role: "user".into(),
             text,
             timestamp: millis_to_dt(item.time_created),
             model,

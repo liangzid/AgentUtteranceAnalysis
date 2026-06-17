@@ -39,6 +39,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/analysis", get(move |s| crate::api::get_analysis(s)))
         .route("/api/v1/utterances", get(move |s| crate::api::get_utterances(s)))
         .route("/api/v1/graph", get(move |s| crate::api::get_graph(s)))
+        .route("/api/v1/coaching", get(move |s| crate::api::get_coaching(s)))
+        .route("/api/v1/coaching/summary", get(move |s| crate::api::get_coaching_summary(s)))
         .nest("/api/v1/", crate::api::routes())
         .with_state(state)
         .fallback(get(serve_frontend))

@@ -9,6 +9,7 @@ authors.workspace = true
 agentrace-core = { path = "../agentrace-core" }
 agentrace-storage = { path = "../agentrace-storage" }
 agentrace-embedding = { path = "../agentrace-embedding" }
+agentrace-llm = { path = "../agentrace-llm" }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true

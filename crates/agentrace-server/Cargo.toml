@@ -9,6 +9,7 @@ authors.workspace = true
 agentrace-core = { path = "../agentrace-core" }
 agentrace-storage = { path = "../agentrace-storage" }
 agentrace-analysis = { path = "../agentrace-analysis" }
+agentrace-llm = { path = "../agentrace-llm" }
 axum.workspace = true
 tower.workspace = true
 tower-http.workspace = true

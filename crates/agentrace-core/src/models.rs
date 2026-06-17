@@ -93,6 +93,7 @@ pub struct Utterance {
     pub source_agent: AgentKind,
     pub conversation_id: String,
     pub turn_index: u32,
+    pub role: String,
     pub text: String,
     pub timestamp: Option<DateTime<Utc>>,
     pub model: Option<ModelInfo>,
@@ -107,6 +108,7 @@ impl Utterance {
         hasher.update(self.source_agent.to_string().as_bytes());
         hasher.update(self.conversation_id.as_bytes());
         hasher.update(self.turn_index.to_le_bytes());
+        hasher.update(self.role.as_bytes());
         hasher.update(self.text.as_bytes());
         let result = hasher.finalize();
         format!("{:x}", result)
@@ -232,6 +234,7 @@ mod tests {
             source_agent: AgentKind::Codex,
             conversation_id: "conv-001".into(),
             turn_index: 1,
+            role: "user".into(),
             text: text.into(),
             timestamp: None,
             model: None,
@@ -272,6 +275,15 @@ mod tests {
     }
 
     #[test]
+    fn utterance_stable_id_changes_with_role() {
+        let mut u1 = make_test_utterance("test");
+        u1.role = "user".into();
+        let mut u2 = make_test_utterance("test");
+        u2.role = "assistant".into();
+        assert_ne!(u1.stable_id(), u2.stable_id());
+    }
+
+    #[test]
     fn utterance_stable_id_format_is_hex() {
         let u = make_test_utterance("test");
         let id = u.stable_id();
@@ -289,6 +301,7 @@ mod tests {
             source_agent: AgentKind::ClaudeCode,
             conversation_id: "sess-42".into(),
             turn_index: 5,
+            role: "user".into(),
             text: "Fix the bug in parser.rs".into(),
             timestamp: Some(chrono::Utc::now()),
             model: Some(ModelInfo {

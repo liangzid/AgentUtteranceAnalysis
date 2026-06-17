@@ -55,7 +55,11 @@ pub enum Commands {
         embed: bool,
     },
     /// Run analysis on imported utterances
-    Analyze,
+    Analyze {
+        /// Run LLM coaching analysis (requires DEEPSEEK_API_KEY)
+        #[arg(long)]
+        coach: bool,
+    },
     /// Start the web dashboard server
     Serve {
         #[arg(long, default_value = "3000")]
@@ -72,7 +76,7 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Discover { home } => run_discover(&home),
         Commands::Import { paths, force, embed } => run_import(&cli.db, &paths, force, embed),
-        Commands::Analyze => run_analyze(&cli.db),
+        Commands::Analyze { coach } => run_analyze(&cli.db, coach),
         Commands::Serve { port } => {
             let store = Store::open(&cli.db)?;
             let rt = tokio::runtime::Runtime::new()?;
@@ -86,11 +90,38 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-fn run_analyze(db_path: &str) -> anyhow::Result<()> {
+fn run_analyze(db_path: &str, coach: bool) -> anyhow::Result<()> {
     let store = Store::open(db_path)?;
+
+    if coach {
+        let client = agentrace_llm::DeepSeekClient::from_env()?;
+        let engine = agentrace_analysis::AnalysisEngine::new(store.clone());
+        let rt = tokio::runtime::Runtime::new()?;
+        let coached = rt.block_on(engine.coach_all(&client))?;
+        println!("Coached {} utterances", coached);
+
+        let summary = engine.coach_summary()?;
+        println!("\nCoach Summary:");
+        println!("  Total coached: {}", summary.total_coached);
+        println!("  Avg clarity: {:.1}/5", summary.avg_clarity);
+        println!("  Dominant style: {}", summary.dominant_style);
+        if !summary.common_issues.is_empty() {
+            println!("\n  Common issues:");
+            for issue in &summary.common_issues[..5.min(summary.common_issues.len())] {
+                println!("    - {}", issue);
+            }
+        }
+        if !summary.top_tips.is_empty() {
+            println!("\n  Top tips:");
+            for tip in &summary.top_tips[..5.min(summary.top_tips.len())] {
+                println!("    - {}", tip);
+            }
+        }
+        return Ok(());
+    }
+
     let engine = agentrace_analysis::AnalysisEngine::new(store);
     let result = engine.run()?;
-
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
 }

@@ -14,6 +14,7 @@ version = "0.1.0"
 dependencies = [
  "agentrace-core",
  "agentrace-embedding",
+ "agentrace-llm",
  "agentrace-storage",
  "anyhow",
  "chrono",
@@ -35,6 +36,7 @@ dependencies = [
  "agentrace-core",
  "agentrace-discovery",
  "agentrace-embedding",
+ "agentrace-llm",
  "agentrace-parser",
  "agentrace-server",
  "agentrace-storage",
@@ -91,6 +93,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentrace-llm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "agentrace-parser"
 version = "0.1.0"
 dependencies = [
@@ -111,6 +125,7 @@ version = "0.1.0"
 dependencies = [
  "agentrace-analysis",
  "agentrace-core",
+ "agentrace-llm",
  "agentrace-storage",
  "anyhow",
  "axum",

@@ -23,6 +23,7 @@ fn utterances_api_returns_real_data() {
         source_agent: AgentKind::Codex,
         conversation_id: "conv-1".into(),
         turn_index: 0,
+            role: "user".into(),
         text: "hello world".into(),
         timestamp: Some(chrono::Utc::now()),
         model: None,

@@ -7,6 +7,7 @@ members = [
     "crates/agentrace-storage",
     "crates/agentrace-embedding",
     "crates/agentrace-analysis",
+    "crates/agentrace-llm",
     "crates/agentrace-cli",
     "crates/agentrace-server",
 ]

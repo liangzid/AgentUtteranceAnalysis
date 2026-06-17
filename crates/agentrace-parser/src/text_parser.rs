@@ -53,6 +53,7 @@ pub fn parse_labeled_text(
                 source_agent: agent.clone(),
                 conversation_id: conversation_id.clone(),
                 turn_index: *turn,
+                role: "user".into(),
                 text,
                 timestamp: None,
                 model: None,

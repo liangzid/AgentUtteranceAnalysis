@@ -23,6 +23,7 @@ fn make_test_utterance(text: &str, turn: u32) -> Utterance {
         source_agent: AgentKind::Codex,
         conversation_id: "conv-001".into(),
         turn_index: turn,
+            role: "user".into(),
         text: text.into(),
         timestamp: None,
         model: None,

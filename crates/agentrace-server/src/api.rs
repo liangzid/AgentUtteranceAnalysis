@@ -95,3 +95,33 @@ pub async fn get_graph(State(state): State<Arc<AppState>>) -> Json<Value> {
         .collect();
     Json(json!({ "nodes": nodes }))
 }
+
+/// GET /api/v1/coaching — LLM coaching results.
+pub async fn get_coaching(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = state.store.all_coaching().unwrap_or_default();
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|r| {
+            let fb: serde_json::Value =
+                serde_json::from_str(&r.coaching_json).unwrap_or_default();
+            json!({
+                "utterance_id": r.utterance_id,
+                "text": r.text,
+                "source_agent": r.source_agent,
+                "clarity_score": r.clarity_score,
+                "interaction_style": r.interaction_style,
+                "feedback": fb,
+            })
+        })
+        .collect();
+    Json(json!({ "coaching": items }))
+}
+
+/// GET /api/v1/coaching/summary — aggregate coaching summary.
+pub async fn get_coaching_summary(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let engine = agentrace_analysis::AnalysisEngine::new(state.store.clone());
+    match engine.coach_summary() {
+        Ok(s) => Json(serde_json::to_value(s).unwrap_or_default()),
+        Err(e) => Json(json!({"error": e.to_string()})),
+    }
+}

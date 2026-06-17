@@ -55,10 +55,12 @@ impl Store {
                 source_agent    TEXT NOT NULL,
                 conversation_id TEXT NOT NULL,
                 turn_index      INTEGER NOT NULL,
+                role            TEXT NOT NULL DEFAULT 'user',
                 timestamp       TEXT,
                 model_provider  TEXT,
                 model_name      TEXT,
                 text            TEXT NOT NULL,
+                response_text   TEXT DEFAULT '',
                 metadata_json   TEXT DEFAULT '{}',
                 imported_at     TEXT NOT NULL DEFAULT (datetime('now')),
                 FOREIGN KEY (source_path) REFERENCES source_files(path)
@@ -84,6 +86,16 @@ impl Store {
                 x            REAL NOT NULL,
                 y            REAL NOT NULL,
                 z            REAL NOT NULL,
+                FOREIGN KEY (utterance_id) REFERENCES utterances(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS llm_coaching (
+                utterance_id     TEXT PRIMARY KEY,
+                coaching_json    TEXT NOT NULL,
+                clarity_score    INTEGER NOT NULL,
+                interaction_style TEXT NOT NULL,
+                model            TEXT NOT NULL,
+                analyzed_at      TEXT NOT NULL DEFAULT (datetime('now')),
                 FOREIGN KEY (utterance_id) REFERENCES utterances(id)
             );
             ",
@@ -148,14 +160,15 @@ impl Store {
 
             for u in utterances {
                 tx.execute(
-                    "INSERT OR REPLACE INTO utterances (id, source_path, source_agent, conversation_id, turn_index, timestamp, model_provider, model_name, text, metadata_json)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    "INSERT OR REPLACE INTO utterances (id, source_path, source_agent, conversation_id, turn_index, role, timestamp, model_provider, model_name, text, metadata_json)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                     rusqlite::params![
                         u.stable_id(),
                         u.source_path,
                         u.source_agent.to_string(),
                         u.conversation_id,
                         u.turn_index,
+                        u.role,
                         u.timestamp.map(|t| t.to_rfc3339()),
                         u.model.as_ref().map(|m| &m.provider),
                         u.model.as_ref().map(|m| &m.model_name),
@@ -228,7 +241,7 @@ impl Store {
     pub fn all_rows(&self) -> Result<Vec<UtteranceRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, source_path, source_agent, conversation_id, turn_index, timestamp, text
+                "SELECT id, source_path, source_agent, conversation_id, turn_index, role, timestamp, text
                  FROM utterances ORDER BY timestamp",
             )?;
             let rows = stmt.query_map([], |row| {
@@ -238,8 +251,9 @@ impl Store {
                     source_agent: row.get(2)?,
                     conversation_id: row.get(3)?,
                     turn_index: row.get(4)?,
-                    timestamp: row.get(5)?,
-                    text: row.get(6)?,
+                    role: row.get(5)?,
+                    timestamp: row.get(6)?,
+                    text: row.get(7)?,
                 })
             })?;
             Ok(rows.filter_map(|r| r.ok()).collect())
@@ -323,6 +337,103 @@ impl Store {
             Ok(())
         })
     }
+
+    /// Store LLM coaching feedback for an utterance.
+    pub fn insert_coaching(
+        &self,
+        utterance_id: &str,
+        coaching_json: &str,
+        clarity_score: u8,
+        interaction_style: &str,
+        model: &str,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO llm_coaching (utterance_id, coaching_json, clarity_score, interaction_style, model)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![utterance_id, coaching_json, clarity_score, interaction_style, model],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Check if an utterance has been coached.
+    pub fn is_coached(&self, utterance_id: &str) -> Result<bool> {
+        self.with_conn(|conn| {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM llm_coaching WHERE utterance_id = ?1",
+                rusqlite::params![utterance_id],
+                |r| r.get(0),
+            )?;
+            Ok(count > 0)
+        })
+    }
+
+    /// Return all coaching feedbacks.
+    pub fn all_coaching(&self) -> Result<Vec<CoachingRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT c.utterance_id, c.coaching_json, c.clarity_score, c.interaction_style, c.model, c.analyzed_at,
+                        u.text, u.source_agent, u.conversation_id
+                 FROM llm_coaching c
+                 JOIN utterances u ON u.id = c.utterance_id
+                 ORDER BY c.analyzed_at DESC",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok(CoachingRow {
+                    utterance_id: row.get(0)?,
+                    coaching_json: row.get(1)?,
+                    clarity_score: row.get(2)?,
+                    interaction_style: row.get(3)?,
+                    model: row.get(4)?,
+                    analyzed_at: row.get(5)?,
+                    text: row.get(6)?,
+                    source_agent: row.get(7)?,
+                    conversation_id: row.get(8)?,
+                })
+            })?;
+            Ok(rows.filter_map(|r| r.ok()).collect())
+        })
+    }
+
+    /// Get user utterances that haven't been coached yet (for batch analysis).
+    pub fn uncoached_user_utterances(&self) -> Result<Vec<UtteranceRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, source_path, source_agent, conversation_id, turn_index, role, timestamp, text
+                 FROM utterances
+                 WHERE role = 'user'
+                   AND id NOT IN (SELECT utterance_id FROM llm_coaching)
+                 ORDER BY timestamp",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok(UtteranceRow {
+                    id: row.get(0)?,
+                    source_path: row.get(1)?,
+                    source_agent: row.get(2)?,
+                    conversation_id: row.get(3)?,
+                    turn_index: row.get(4)?,
+                    role: row.get(5)?,
+                    timestamp: row.get(6)?,
+                    text: row.get(7)?,
+                })
+            })?;
+            Ok(rows.filter_map(|r| r.ok()).collect())
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CoachingRow {
+    pub utterance_id: String,
+    pub coaching_json: String,
+    pub clarity_score: u8,
+    pub interaction_style: String,
+    pub model: String,
+    pub analyzed_at: String,
+    pub text: String,
+    pub source_agent: String,
+    pub conversation_id: String,
 }
 
 /// A row from graph_positions joined with utterances.
@@ -344,6 +455,7 @@ pub struct UtteranceRow {
     pub source_agent: String,
     pub conversation_id: String,
     pub turn_index: u32,
+    pub role: String,
     pub timestamp: Option<String>,
     pub text: String,
 }
@@ -372,6 +484,7 @@ mod tests {
             source_agent: agentrace_core::models::AgentKind::Codex,
             conversation_id: "conv-001".into(),
             turn_index: turn,
+            role: "user".into(),
             text: text.into(),
             timestamp: None,
             model: None,

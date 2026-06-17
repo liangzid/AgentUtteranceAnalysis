@@ -5,13 +5,16 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[features]
+default = []
+onnx = []
+
 [dependencies]
 agentrace-core = { path = "../agentrace-core" }
-ort.workspace = true
+ort = { version = "2.0.0-rc.12", optional = true }
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-tokenizers = "0.21"
-reqwest = { version = "0.12", features = ["blocking"] }
-dirs = "5"
-ndarray = "0.16"
+tokenizers = { version = "0.21", optional = true }
+reqwest = { version = "0.12", features = ["blocking"], optional = true }
+dirs = { version = "5", optional = true }

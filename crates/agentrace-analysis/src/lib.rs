@@ -21,6 +21,7 @@ pub mod safety;
 pub mod self_improvement;
 pub mod stats;
 
+use agentrace_embedding::Embedding;
 use agentrace_storage::Store;
 use anyhow::Result;
 use serde::Serialize;
@@ -40,6 +41,33 @@ pub struct AnalysisEngine {
 impl AnalysisEngine {
     pub fn new(store: Store) -> Self {
         Self { store }
+    }
+
+    /// Generate and store embeddings for all utterances using the given provider.
+    pub fn embed_all(
+        &self,
+        provider: &dyn agentrace_embedding::EmbeddingProvider,
+    ) -> Result<usize> {
+        let rows = self.store.all_rows()?;
+        let texts: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
+        if texts.is_empty() {
+            return Ok(0);
+        }
+
+        let embeddings = provider.embed(&texts)?;
+        let mut stored = 0usize;
+
+        for (row, embedding) in rows.iter().zip(embeddings.iter()) {
+            self.store.insert_embedding(
+                &row.id,
+                agentrace_embedding::MODEL_NAME,
+                provider.dimension(),
+                embedding,
+            )?;
+            stored += 1;
+        }
+
+        Ok(stored)
     }
 
     /// Run all analysis modules and return consolidated results.

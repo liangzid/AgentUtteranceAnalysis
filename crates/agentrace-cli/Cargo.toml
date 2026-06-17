@@ -10,6 +10,7 @@ agentrace-core = { path = "../agentrace-core" }
 agentrace-discovery = { path = "../agentrace-discovery" }
 agentrace-parser = { path = "../agentrace-parser" }
 agentrace-storage = { path = "../agentrace-storage" }
+agentrace-embedding = { path = "../agentrace-embedding" }
 agentrace-analysis = { path = "../agentrace-analysis" }
 agentrace-server = { path = "../agentrace-server" }
 clap.workspace = true

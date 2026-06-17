@@ -14,6 +14,7 @@
 
 use agentrace_core::models::{AgentKind, SourceFile};
 use agentrace_discovery::{discover_sources, SUPPORTED_SUFFIXES};
+use agentrace_embedding::EmbeddingProvider;
 use agentrace_parser::parse_file;
 use agentrace_storage::Store;
 use clap::{Parser, Subcommand};
@@ -49,6 +50,9 @@ pub enum Commands {
         /// Force re-import of unchanged files
         #[arg(long)]
         force: bool,
+        /// Generate embeddings after import (requires ONNX model)
+        #[arg(long)]
+        embed: bool,
     },
     /// Run analysis on imported utterances
     Analyze,
@@ -65,7 +69,7 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Discover { home } => run_discover(&home),
-        Commands::Import { paths, force } => run_import(&cli.db, &paths, force),
+        Commands::Import { paths, force, embed } => run_import(&cli.db, &paths, force, embed),
         Commands::Analyze => run_analyze(&cli.db),
         Commands::Serve { port } => {
             let store = Store::open(&cli.db)?;
@@ -105,7 +109,7 @@ fn run_discover(home: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_import(db_path: &str, paths: &[String], force: bool) -> anyhow::Result<()> {
+fn run_import(db_path: &str, paths: &[String], force: bool, embed: bool) -> anyhow::Result<()> {
     let store = Store::open(db_path)?;
     let mut scanned = 0u64;
     let mut imported = 0u64;
@@ -178,6 +182,15 @@ fn run_import(db_path: &str, paths: &[String], force: bool) -> anyhow::Result<()
         "\nImport summary: {} scanned, {} imported, {} skipped, {} failed",
         scanned, imported, skipped, failed
     );
+
+    if embed && imported > 0 {
+        println!("\nGenerating embeddings...");
+        let provider = agentrace_embedding::StubEmbeddingProvider::new();
+        let engine = agentrace_analysis::AnalysisEngine::new(store.clone());
+        let stored = engine.embed_all(&provider)?;
+        println!("  stored {} embeddings (dim={})", stored, provider.dimension());
+    }
+
     Ok(())
 }
 

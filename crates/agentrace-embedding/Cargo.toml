@@ -11,3 +11,7 @@ ort.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+tokenizers = "0.21"
+reqwest = { version = "0.12", features = ["blocking"] }
+dirs = "5"
+ndarray = "0.16"

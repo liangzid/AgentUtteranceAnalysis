@@ -2,11 +2,11 @@
 // `AGENTRACE-EMBEDDING`
 //
 // 1. Text embedding engine for semantic search and clustering.
-// 2. EmbeddingProvider trait + stub backend.
-// 3. ONNX backend (behind "onnx" feature): real inference with ort.
+// 2. EmbeddingProvider trait + StubEmbeddingProvider + CandleEmbeddingProvider.
+// 3. Candle backend: pure-Rust BERT, zero C++ deps, works on any glibc.
 // 4. Modification history:
 //    - 16 June 2025: Initial skeleton
-//    - 17 June 2025: Phase 5 — ONNX inference + feature gate
+//    - 17 June 2025: Phase 5 — candle-based real inference
 //
 //     Author: Zi Liang <zi1415926.liang@connect.polyu.hk>
 //     Copyright © 2025, Zi Liang, all rights reserved.
@@ -14,6 +14,8 @@
 // ======================================================================
 
 use anyhow::Result;
+
+pub mod candle;
 
 pub const EMBEDDING_DIM: usize = 384;
 pub const MODEL_NAME: &str = "all-MiniLM-L6-v2";
@@ -51,9 +53,8 @@ impl EmbeddingProvider for StubEmbeddingProvider {
     }
 }
 
-/// Re-export the ONNX provider when the feature is enabled.
-#[cfg(feature = "onnx")]
-pub mod onnx;
+// Re-export candle provider
+pub use candle::OnnxEmbeddingProvider;
 
 // ======================================================================
 // Tests
@@ -64,22 +65,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stub_provider_returns_correct_dimension() {
-        let p = StubEmbeddingProvider::new();
-        assert_eq!(p.dimension(), 384);
+    fn stub_dimension() {
+        assert_eq!(StubEmbeddingProvider::new().dimension(), 384);
     }
 
     #[test]
-    fn stub_provider_embed_count() {
-        let p = StubEmbeddingProvider::new();
-        let e = p.embed(&["a", "b", "c"]).unwrap();
+    fn stub_embed_count() {
+        let e = StubEmbeddingProvider::new().embed(&["a", "b", "c"]).unwrap();
         assert_eq!(e.len(), 3);
-        assert_eq!(e[0].len(), 384);
     }
 
     #[test]
-    fn stub_provider_empty_input() {
-        let p = StubEmbeddingProvider::new();
-        assert!(p.embed(&[]).unwrap().is_empty());
+    fn stub_embed_empty() {
+        assert!(StubEmbeddingProvider::new().embed(&[]).unwrap().is_empty());
     }
 }

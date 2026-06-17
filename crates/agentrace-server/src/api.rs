@@ -56,3 +56,23 @@ pub async fn get_analysis(State(state): State<Arc<AppState>>) -> Json<Value> {
         Err(e) => Json(json!({"error": e.to_string()})),
     }
 }
+
+/// GET /api/v1/utterances — list of utterances with details.
+pub async fn get_utterances(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = state.store.all_rows().unwrap_or_default();
+    let utterances: Vec<Value> = rows
+        .into_iter()
+        .map(|r| {
+            json!({
+                "id": r.id,
+                "source_path": r.source_path,
+                "source_agent": r.source_agent,
+                "conversation_id": r.conversation_id,
+                "turn_index": r.turn_index,
+                "timestamp": r.timestamp,
+                "text": r.text,
+            })
+        })
+        .collect();
+    Json(json!({ "utterances": utterances }))
+}

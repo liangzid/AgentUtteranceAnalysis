@@ -11,14 +11,15 @@
 | 5 | 前端 | React + TypeScript + Vite，打包嵌入 Rust binary |
 | 6 | UI 组件库 | shadcn/ui + Tailwind CSS |
 | 7 | Rust Web 框架 | axum + tokio |
-| 8 | Embedding | 本地 ONNX（all-MiniLM-L6-v2, 384d），ort crate |
+| 8 | Embedding | candle + all-MiniLM-L6-v2 (384-dim BERT, pure Rust) |
 | 9 | 存储 | SQLite + sqlite-vec 扩展 |
-| 10 | 洞察形态 | Dashboard + 周期性报告 |
-| 11 | 3D 交互 | 全部 7 项 |
+| 10 | 洞察形态 | Dashboard + LLM 教练分析 |
+| 11 | 3D 交互 | 全部 7 项：导航/详情/着色/时间轴/语义搜索/地形图/轨迹线 |
 | 12 | 触发方式 | CLI + Daemon 两者 |
 | 13 | 交叉分析 | GROUP BY agent × model × task |
 | 14 | Workspace | 多 crate 结构 |
 | 15 | 构建 | 前端嵌入 Rust binary，单一可执行文件 |
+| 16 | LLM 分析 | DeepSeek API (OpenAI-compatible)，conversation 级 coaching |
 
 ## Workspace 结构
 
@@ -26,37 +27,90 @@
 agentrace/
 ├── Cargo.toml                  # workspace root
 ├── crates/
-│   ├── agentrace-core/         # 共享数据模型
-│   ├── agentrace-discovery/    # Agent 存储发现
-│   ├── agentrace-parser/       # 多格式解析器
-│   ├── agentrace-storage/      # SQLite + sqlite-vec 持久化
-│   ├── agentrace-embedding/    # ONNX embedding 引擎
-│   ├── agentrace-analysis/     # 分析引擎
-│   │   ├── safety/
-│   │   ├── behavior/
-│   │   ├── knowledge/
-│   │   └── self_improvement/
-│   ├── agentrace-cli/          # CLI 入口（clap）
-│   └── agentrace-server/       # axum Web 服务器 + Daemon
+│   ├── agentrace-core/         # 数据模型 (Utterance, AgentKind, TaskKind)
+│   ├── agentrace-discovery/    # Agent 存储发现 (glob 扫描)
+│   ├── agentrace-parser/       # 多格式解析 (JSON/JSONL/MD/text/SQLite)
+│   ├── agentrace-storage/      # SQLite 持久化 (utterances, embeddings, graph, coaching)
+│   ├── agentrace-embedding/    # BERT embedding (candle, all-MiniLM-L6-v2)
+│   ├── agentrace-llm/          # DeepSeek API 客户端 (coaching analysis)
+│   ├── agentrace-analysis/     # 分析引擎 (stats, PCA graph, coaching engine)
+│   ├── agentrace-cli/          # CLI 入口 (clap derive, 6 commands)
+│   └── agentrace-server/       # axum Web 服务器 + 内嵌前端
 ├── frontend/                   # React + Vite + Deck.gl
+├── examples/                   # 测试数据
 └── records/                    # 设计讨论记录
 ```
 
-## Phase 1 完成状态 ✅
+## Phase 1 完成 ✅
 
 - [x] Rust workspace 初始化（8 crate, 全部编译通过）
 - [x] agentrace-core：Utterance, SourceFile, Conversation, AgentKind, TaskKind 等
 - [x] agentrace-storage：SQLite schema（source_files, utterances, embeddings）
-- [x] agentrace-embedding：EmbeddingProvider trait + OnnxEmbeddingProvider stub
-- [x] agentrace-server：axum router（/api/v1/health, /api/v1/stats），frontend SPA 嵌入
+- [x] agentrace-embedding：EmbeddingProvider trait + StubEmbeddingProvider
+- [x] agentrace-server：axum router（/api/v1/health, /api/v1/stats），SPA 嵌入
 - [x] agentrace-cli：clap derive（discover, import, analyze, serve）
 - [x] 前端：React + Tailwind + Deck.gl 3D 点云 demo
-- [x] 构建管线：cargo build --release 产出两个 binary
+- [x] 构建管线：cargo build --release 产出 binary
 
-## Phase 2: 数据管线（下一步）
+## Phase 2: 数据管线 ✅
 
-- [ ] agentrace-discovery：移植 Python discovery.py 的扫描逻辑
-- [ ] agentrace-parser：移植 JSON/JSONL/Markdown/SQLite 解析器
-- [ ] agentrace-cli import：对接 discovery + parser + storage
-- [ ] agentrace-storage：source_is_current() 增量导入逻辑
-- [ ] 用 samples/examples 测试端到端导入
+- [x] agentrace-discovery：Python discovery.py 扫描逻辑移植
+- [x] agentrace-parser：JSON/JSONL/Markdown/text/SQLite 解析器移植 (27 tests)
+- [x] agentrace-cli import：对接 discovery + parser + storage
+- [x] agentrace-storage：source_is_current() 增量导入
+- [x] examples/sample_codex.json 端到端导入验证
+
+## Phase 3: 分析引擎 + API ✅
+
+- [x] agentrace-storage：Arc<Mutex<>> 重构，7 个查询方法
+- [x] agentrace-analysis/stats.rs：词数/中位数/分布/6 种属性检测/6 种英文自然度 heuristic
+- [x] agentrace-server：/api/v1/stats 返回真实 DB 数据，/api/v1/analysis 返回完整 JSON
+- [x] agentrace-cli：analyze 命令运行分析引擎；serve 命令启动 Web 服务器
+- [x] 前端：对接真实 API 数据（stats/analysis/agent legend/properties panel）
+
+## Phase 4: 3D 可视化增强 ✅
+
+- [x] /api/v1/utterances 端点（id, agent, text, timestamp）
+- [x] Detail Popup：点击 utterance → 全屏 popup 显示完整内容
+- [x] 颜色切换：agent / time (HSL gradient) / properties
+- [x] 时间轴双滑块过滤
+- [x] 行为轨迹线：LineLayer 连同一 conversation
+- [x] 领域地形图延后（需真实 embedding clustering）
+
+## Phase 5: 真实 Embedding ✅
+
+- [x] ONNX Runtime → candle 迁移（解决 glibc 2.38 不兼容问题）
+- [x] candle BERT 推理：tokenize → BertModel::forward → mean pool → L2 normalize
+- [x] hf-hub 自动下载 all-MiniLM-L6-v2 (~90MB)
+- [x] 集成测试：相同文本相似度 1.0，coding cluster 0.19 > cross-domain 0.04
+- [x] import --embed pipeline：自动生成 embedding 并存储
+
+## Phase 6: 知识图谱 ✅
+
+- [x] PCA 降维：384-dim → 3D（power iteration + deflation）
+- [x] graph_positions 表：utterance_id + x/y/z
+- [x] Cosine similarity edges
+- [x] build-graph CLI 命令
+- [x] /api/v1/graph API 端点
+- [x] 前端使用真实 3D 坐标（fallback spiral）
+
+## Phase 7: DeepSeek 交互教练 ✅
+
+- [x] Utterance.role 字段（user/assistant）
+- [x] agentrace-llm crate：DeepSeek API 客户端（OpenAI-compatible）
+- [x] COACH_SYSTEM_PROMPT：AI 交互教练 persona
+- [x] CoachingFeedback：intent/what_worked/could_improve/better_prompt/hidden_tip/knowledge_gap/clarity_score
+- [x] llm_coaching 表 + Store 方法
+- [x] coach_all()：逐条 LLM 分析（配对 AI 回复）
+- [x] coach_summary()：聚合 clarity/style/issues/tips
+- [x] CLI analyze --coach + /api/v1/coaching API
+
+## 当前状态
+
+| 指标 | 值 |
+|------|-----|
+| Crate 数量 | 9（+1 vs 设计） |
+| CLI 命令 | 6 (discover/import/analyze/serve/build-graph) |
+| API 端点 | 8 (/health/stats/analysis/utterances/graph/coaching/coaching/summary) |
+| 测试 | 76 (lib) + 集成 + 端到端 |
+| 3D 交互完成度 | 6/7 (语义搜索/高亮需真实 embedding) |

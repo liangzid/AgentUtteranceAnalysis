@@ -61,6 +61,8 @@ pub enum Commands {
         #[arg(long, default_value = "3000")]
         port: u16,
     },
+    /// Build 3D knowledge graph from embeddings
+    BuildGraph,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -80,6 +82,7 @@ fn main() -> anyhow::Result<()> {
             })?;
             Ok(())
         }
+        Commands::BuildGraph => run_build_graph(&cli.db),
     }
 }
 
@@ -89,6 +92,29 @@ fn run_analyze(db_path: &str) -> anyhow::Result<()> {
     let result = engine.run()?;
 
     println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
+}
+
+fn run_build_graph(db_path: &str) -> anyhow::Result<()> {
+    let store = Store::open(db_path)?;
+
+    let provider = agentrace_embedding::StubEmbeddingProvider::new();
+    // NOTE: For real embeddings, use:
+    // let provider = agentrace_embedding::candle::OnnxEmbeddingProvider::load()?;
+
+    let engine = agentrace_analysis::AnalysisEngine::new(store);
+    let graph = engine.build_graph(&provider)?;
+
+    println!("Knowledge graph built:");
+    println!("  nodes: {}", graph.nodes.len());
+    println!("  edges: {}", graph.edges.len());
+    println!(
+        "  variance explained: PC1={:.1}% PC2={:.1}% PC3={:.1}%",
+        graph.variance_explained[0] * 100.0,
+        graph.variance_explained[1] * 100.0,
+        graph.variance_explained[2] * 100.0,
+    );
+
     Ok(())
 }
 

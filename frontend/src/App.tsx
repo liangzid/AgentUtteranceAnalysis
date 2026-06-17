@@ -39,6 +39,12 @@ interface UtteranceItem {
 
 interface UtterancesResponse { utterances: UtteranceItem[] }
 
+interface GraphNode {
+  id: string; text: string; source_agent: string;
+  x: number; y: number; z: number;
+}
+interface GraphResponse { nodes: GraphNode[] }
+
 type ColorMode = "agent" | "time" | "properties";
 
 // --- Constants ---
@@ -138,6 +144,7 @@ export default function App() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [utterances, setUtterances] = useState<UtteranceItem[]>([]);
+  const [graphNodes, setGraphNodes] = useState<GraphNode[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [colorMode, setColorMode] = useState<ColorMode>("agent");
@@ -147,15 +154,14 @@ export default function App() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [sRes, aRes, uRes] = await Promise.all([
-        fetch("/api/v1/stats"), fetch("/api/v1/analysis"), fetch("/api/v1/utterances"),
+      const [sRes, aRes, uRes, gRes] = await Promise.all([
+        fetch("/api/v1/stats"), fetch("/api/v1/analysis"),
+        fetch("/api/v1/utterances"), fetch("/api/v1/graph"),
       ]);
       if (sRes.ok) setStats(await sRes.json());
       if (aRes.ok) setAnalysis(await aRes.json());
-      if (uRes.ok) {
-        const data: UtterancesResponse = await uRes.json();
-        setUtterances(data.utterances);
-      }
+      if (uRes.ok) { const data: UtterancesResponse = await uRes.json(); setUtterances(data.utterances); }
+      if (gRes.ok) { const data: GraphResponse = await gRes.json(); if (data.nodes?.length) setGraphNodes(data.nodes); }
       setError(null);
     } catch { setError("Cannot reach API. Start with: agentrace serve"); }
     finally { setLoading(false); }
@@ -194,8 +200,19 @@ export default function App() {
     return m;
   }, [analysis, utterances]);
 
-  // Points with 3D spiral layout
+  // Points: use graph 3D positions when available, otherwise spiral
   const points = useMemo(() => {
+    if (graphNodes && graphNodes.length > 0) {
+      const scale = 100;
+      return graphNodes.map((gn) => ({
+        position: [gn.x * scale, gn.y * scale, gn.z * scale] as [number, number, number],
+        size: 3 + Math.random() * 4,
+        color: agentColor(gn.source_agent),
+        id: gn.id,
+        utterance: { id: gn.id, text: gn.text, source_agent: gn.source_agent,
+          conversation_id: "", turn_index: 0, timestamp: null, source_path: "" } as UtteranceItem,
+      }));
+    }
     if (filtered.length === 0) return [];
     return filtered.map((u, i) => {
       const pos = spiral3D(i, filtered.length, 80);
@@ -204,7 +221,7 @@ export default function App() {
         : () => agentColor(u.source_agent);
       return { position: pos, size: 3 + Math.random() * 4, color: colorFn(), id: u.id, utterance: u };
     });
-  }, [filtered, colorMode, propMap]);
+  }, [filtered, colorMode, propMap, graphNodes]);
 
   // Trajectory lines: connect utterances in the same conversation, ordered by turn_index
   const trajectoryLines = useMemo(() => {

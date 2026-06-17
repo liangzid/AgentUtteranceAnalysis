@@ -15,6 +15,7 @@
 
 use agentrace_core::models::{SourceFile, Utterance};
 use anyhow::Result;
+use serde::Serialize;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -75,6 +76,14 @@ impl Store {
                 model_name   TEXT NOT NULL,
                 dimensions   INTEGER NOT NULL,
                 vector       BLOB NOT NULL,
+                FOREIGN KEY (utterance_id) REFERENCES utterances(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS graph_positions (
+                utterance_id TEXT PRIMARY KEY,
+                x            REAL NOT NULL,
+                y            REAL NOT NULL,
+                z            REAL NOT NULL,
                 FOREIGN KEY (utterance_id) REFERENCES utterances(id)
             );
             ",
@@ -272,6 +281,59 @@ impl Store {
             Ok(rows.filter_map(|r| r.ok()).collect())
         })
     }
+
+    /// Store a 3D position for a graph node.
+    pub fn insert_graph_position(&self, utterance_id: &str, x: f32, y: f32, z: f32) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO graph_positions (utterance_id, x, y, z) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![utterance_id, x, y, z],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Retrieve all graph positions with utterance metadata.
+    pub fn all_graph_positions(&self) -> Result<Vec<GraphPositionRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT g.utterance_id, g.x, g.y, g.z, u.text, u.source_agent
+                 FROM graph_positions g
+                 JOIN utterances u ON u.id = g.utterance_id
+                 ORDER BY g.utterance_id",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok(GraphPositionRow {
+                    utterance_id: row.get(0)?,
+                    x: row.get(1)?,
+                    y: row.get(2)?,
+                    z: row.get(3)?,
+                    text: row.get(4)?,
+                    source_agent: row.get(5)?,
+                })
+            })?;
+            Ok(rows.filter_map(|r| r.ok()).collect())
+        })
+    }
+
+    /// Clear all graph positions (re-run graph build).
+    pub fn clear_graph_positions(&self) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute("DELETE FROM graph_positions", [])?;
+            Ok(())
+        })
+    }
+}
+
+/// A row from graph_positions joined with utterances.
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphPositionRow {
+    pub utterance_id: String,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub text: String,
+    pub source_agent: String,
 }
 
 /// A lightweight row from the utterances table.

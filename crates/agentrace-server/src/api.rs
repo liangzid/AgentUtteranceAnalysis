@@ -76,3 +76,22 @@ pub async fn get_utterances(State(state): State<Arc<AppState>>) -> Json<Value> {
         .collect();
     Json(json!({ "utterances": utterances }))
 }
+
+/// GET /api/v1/graph — 3D knowledge graph data.
+pub async fn get_graph(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let positions = state.store.all_graph_positions().unwrap_or_default();
+    let nodes: Vec<Value> = positions
+        .into_iter()
+        .map(|p| {
+            json!({
+                "id": p.utterance_id,
+                "text": p.text,
+                "source_agent": p.source_agent,
+                "x": p.x,
+                "y": p.y,
+                "z": p.z,
+            })
+        })
+        .collect();
+    Json(json!({ "nodes": nodes }))
+}

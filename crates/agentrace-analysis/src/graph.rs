@@ -19,6 +19,7 @@ pub struct GraphNode {
     pub x: f32,
     pub y: f32,
     pub z: f32,
+    pub cluster_id: u32,
 }
 
 /// An edge connecting two semantically similar nodes.
@@ -139,6 +140,64 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     } else {
         dot / (na * nb)
     }
+}
+
+/// Simple k-means clustering of embeddings.
+/// Returns (cluster_assignments, k) where assignments[i] is the cluster index.
+pub fn kmeans_cluster(embeddings: &[Vec<f32>], k: usize, max_iters: usize) -> Vec<usize> {
+    let n = embeddings.len();
+    let d = embeddings[0].len();
+    if n <= k {
+        return (0..n).collect();
+    }
+
+    // Initialize centroids: pick k evenly spaced embeddings
+    let mut centroids: Vec<Vec<f32>> = (0..k)
+        .map(|i| embeddings[i * n / k].clone())
+        .collect();
+    let mut assignments = vec![0usize; n];
+
+    for _ in 0..max_iters {
+        // Assign each point to nearest centroid
+        let mut changed = false;
+        for (i, emb) in embeddings.iter().enumerate() {
+            let best = centroids.iter()
+                .enumerate()
+                .map(|(j, c)| (j, cosine_similarity(emb, c)))
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                .map(|(j, _)| j)
+                .unwrap_or(0);
+            if assignments[i] != best {
+                assignments[i] = best;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+
+        // Update centroids: mean of assigned points
+        for j in 0..k {
+            let members: Vec<&Vec<f32>> = assignments.iter().enumerate()
+                .filter(|(_, c)| **c == j)
+                .map(|(i, _)| &embeddings[i])
+                .collect();
+            if !members.is_empty() {
+                let mut mean = vec![0.0f32; d];
+                for m in &members {
+                    for (dim, &val) in m.iter().enumerate() {
+                        mean[dim] += val;
+                    }
+                }
+                for dim in 0..d {
+                    mean[dim] /= members.len() as f32;
+                }
+                centroids[j] = mean;
+            }
+        }
+    }
+
+    assignments
 }
 
 // ======================================================================

@@ -7,16 +7,46 @@
   --radius: 0.5rem;
 }
 
-body {
-  margin: 0;
-  background: #0a0a0f;
-  color: #e0e0e0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1e1e2c transparent;
 }
 
-/* Deck.gl canvas fills the viewport */
+body {
+  margin: 0;
+  background: #0b0b10;
+  color: #e4e4e7;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+code, .font-mono, [class*="font-mono"] {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+}
+
 #root {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+}
+
+/* Deck.gl canvas fills parent */
+.deckgl-parent {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Custom scrollbar for WebKit */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e1e2c;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2e2e3c;
 }

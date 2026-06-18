@@ -19,11 +19,13 @@ use std::path::{Path, PathBuf};
 /// Agent directory names to search for inside project directories.
 const AGENT_DIR_NAMES: &[&str] = &[
     ".codex", ".claude", ".opencode", ".openclaw", ".kilo", ".kilo-code", ".kilocode",
+    ".reasonix", ".codewhale",
 ];
 
 /// Global candidate paths relative to HOME.
 const GLOBAL_CANDIDATES: &[&str] = &[
     ".local/share/opencode/opencode.db",
+    ".local/share/opencode/opencode-stable.db",
     ".local/share/opencode/log",
     ".codex",
     ".claude",
@@ -33,6 +35,9 @@ const GLOBAL_CANDIDATES: &[&str] = &[
     ".kilo",
     ".kilo-code",
     ".kilocode",
+    ".config/reasonix/sessions",
+    ".codewhale/sessions",
+    ".codewhale/projects",
 ];
 
 /// Directory names to skip during recursive scanning.

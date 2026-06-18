@@ -86,7 +86,17 @@ impl Store {
                 x            REAL NOT NULL,
                 y            REAL NOT NULL,
                 z            REAL NOT NULL,
+                cluster_id   INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (utterance_id) REFERENCES utterances(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS graph_edges (
+                source_id  TEXT NOT NULL,
+                target_id  TEXT NOT NULL,
+                similarity REAL NOT NULL,
+                PRIMARY KEY (source_id, target_id),
+                FOREIGN KEY (source_id) REFERENCES utterances(id),
+                FOREIGN KEY (target_id) REFERENCES utterances(id)
             );
 
             CREATE TABLE IF NOT EXISTS llm_coaching (
@@ -297,11 +307,11 @@ impl Store {
     }
 
     /// Store a 3D position for a graph node.
-    pub fn insert_graph_position(&self, utterance_id: &str, x: f32, y: f32, z: f32) -> Result<()> {
+    pub fn insert_graph_position(&self, utterance_id: &str, x: f32, y: f32, z: f32, cluster_id: u32) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "INSERT OR REPLACE INTO graph_positions (utterance_id, x, y, z) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![utterance_id, x, y, z],
+                "INSERT OR REPLACE INTO graph_positions (utterance_id, x, y, z, cluster_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![utterance_id, x, y, z, cluster_id],
             )?;
             Ok(())
         })
@@ -311,7 +321,7 @@ impl Store {
     pub fn all_graph_positions(&self) -> Result<Vec<GraphPositionRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT g.utterance_id, g.x, g.y, g.z, u.text, u.source_agent
+                "SELECT g.utterance_id, g.x, g.y, g.z, g.cluster_id, u.text, u.source_agent
                  FROM graph_positions g
                  JOIN utterances u ON u.id = g.utterance_id
                  ORDER BY g.utterance_id",
@@ -322,8 +332,9 @@ impl Store {
                     x: row.get(1)?,
                     y: row.get(2)?,
                     z: row.get(3)?,
-                    text: row.get(4)?,
-                    source_agent: row.get(5)?,
+                    cluster_id: row.get(4)?,
+                    text: row.get(5)?,
+                    source_agent: row.get(6)?,
                 })
             })?;
             Ok(rows.filter_map(|r| r.ok()).collect())
@@ -334,6 +345,42 @@ impl Store {
     pub fn clear_graph_positions(&self) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute("DELETE FROM graph_positions", [])?;
+            Ok(())
+        })
+    }
+
+    /// Store a graph edge (similarity link between two nodes).
+    pub fn insert_graph_edge(&self, source: &str, target: &str, similarity: f32) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO graph_edges (source_id, target_id, similarity) VALUES (?1, ?2, ?3)",
+                rusqlite::params![source, target, similarity],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Retrieve all graph edges.
+    pub fn all_graph_edges(&self) -> Result<Vec<GraphEdgeRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT source_id, target_id, similarity FROM graph_edges ORDER BY similarity DESC",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok(GraphEdgeRow {
+                    source: row.get(0)?,
+                    target: row.get(1)?,
+                    similarity: row.get(2)?,
+                })
+            })?;
+            Ok(rows.filter_map(|r| r.ok()).collect())
+        })
+    }
+
+    /// Clear all graph edges.
+    pub fn clear_graph_edges(&self) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute("DELETE FROM graph_edges", [])?;
             Ok(())
         })
     }
@@ -443,8 +490,17 @@ pub struct GraphPositionRow {
     pub x: f32,
     pub y: f32,
     pub z: f32,
+    pub cluster_id: u32,
     pub text: String,
     pub source_agent: String,
+}
+
+/// A row from graph_edges.
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphEdgeRow {
+    pub source: String,
+    pub target: String,
+    pub similarity: f32,
 }
 
 /// A lightweight row from the utterances table.

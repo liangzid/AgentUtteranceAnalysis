@@ -18,6 +18,11 @@ use std::path::Path;
 
 /// User-role strings that indicate a user message.
 const USER_ROLES: &[&str] = &["user", "human", "me", "you", "requester", "client"];
+/// Roles we collect — both user messages and AI assistant responses.
+const COLLECTED_ROLES: &[&str] = &[
+    "user", "human", "me", "you", "requester", "client",
+    "assistant", "agent", "tool",
+];
 const KNOWN_ROLES: &[&str] = &[
     "user", "human", "me", "you", "requester", "client",
     "assistant", "agent", "system", "developer", "tool",
@@ -73,7 +78,7 @@ pub fn utterances_from_json_value(
     for (conversation_id, messages) in find_message_lists(data, fallback_id) {
         for (index, message) in messages.iter().enumerate() {
             let role = extract_role(message);
-            if role.is_none() || !USER_ROLES.contains(&role.as_ref().unwrap().as_str()) {
+            if role.is_none() || !COLLECTED_ROLES.contains(&role.as_ref().unwrap().as_str()) {
                 continue;
             }
             let role_str = role.clone().unwrap();
@@ -150,6 +155,44 @@ pub fn utterances_from_json_value(
                         role: r.clone(),
                         text,
                         timestamp: extract_timestamp(data),
+                        model: None,
+                        metadata,
+                    });
+                }
+            }
+        }
+    }
+
+    // Fallback: Reasonix checkpoint files — objects with "prompt" key
+    // indicating a user message, but no explicit role field.
+    if utterances.is_empty() && data.is_object() {
+        let obj = data.as_object().unwrap();
+        if obj.contains_key("prompt") && extract_role(data).is_none() {
+            if let Some(text) = obj.get("prompt").and_then(|v| v.as_str()) {
+                let text = text.trim().to_string();
+                if !text.is_empty() {
+                    let ts = obj
+                        .get("time")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| {
+                            chrono::DateTime::parse_from_rfc3339(s)
+                                .ok()
+                                .map(|dt| dt.with_timezone(&Utc))
+                        });
+                    let mut metadata = HashMap::new();
+                    metadata.insert("parser".into(), "reasonix_ckpt".into());
+                    metadata.insert("role".into(), "user".into());
+                    if let Some(turn) = obj.get("turn").and_then(|v| v.as_u64()) {
+                        metadata.insert("source_turn".into(), turn.to_string());
+                    }
+                    utterances.push(Utterance {
+                        source_path: path.to_string_lossy().to_string(),
+                        source_agent: agent.clone(),
+                        conversation_id: fallback_id.to_string(),
+                        turn_index: 0,
+                        role: "user".into(),
+                        text,
+                        timestamp: ts,
                         model: None,
                         metadata,
                     });
@@ -471,12 +514,14 @@ mod tests {
             ]
         }"#;
         let utterances = parse_json(raw, &test_path(), &test_agent());
-        assert_eq!(utterances.len(), 2);
+        assert_eq!(utterances.len(), 3);
         assert_eq!(utterances[0].text, "hello world");
-        assert_eq!(utterances[1].text, "help me");
+        assert_eq!(utterances[0].role, "user");
+        assert_eq!(utterances[1].text, "hi there");
+        assert_eq!(utterances[1].role, "assistant");
+        assert_eq!(utterances[2].text, "help me");
+        assert_eq!(utterances[2].role, "user");
         assert_eq!(utterances[0].conversation_id, "conv-1");
-        assert_eq!(utterances[0].turn_index, 0);
-        assert_eq!(utterances[1].turn_index, 1);
     }
 
     #[test]
@@ -597,5 +642,24 @@ mod tests {
         let raw = r#"{"payload": {"message": {"content": "deeply nested"}}}"#;
         let v: Value = serde_json::from_str(raw).unwrap();
         assert_eq!(extract_text(&v), "deeply nested");
+    }
+
+    #[test]
+    fn parse_reasonix_ckpt_turn_json() {
+        let raw = r#"{"turn": 3, "time": "2026-06-17T13:57:55.196761661+08:00", "prompt": "Fix the parser bug", "msgIndex": 6, "files": null}"#;
+        let utterances = parse_json(raw, &test_path(), &AgentKind::Reasonix);
+        assert_eq!(utterances.len(), 1);
+        assert_eq!(utterances[0].text, "Fix the parser bug");
+        assert_eq!(utterances[0].role, "user");
+        assert!(utterances[0].timestamp.is_some());
+        assert_eq!(
+            utterances[0].metadata.get("parser").unwrap(),
+            "reasonix_ckpt"
+        );
+        // Source turn number preserved in metadata
+        assert_eq!(
+            utterances[0].metadata.get("source_turn").unwrap(),
+            "3"
+        );
     }
 }

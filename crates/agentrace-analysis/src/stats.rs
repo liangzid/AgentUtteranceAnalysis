@@ -244,10 +244,10 @@ fn sentence_complexity(text: &str) -> f64 {
 /// Truncate text for excerpt display.
 fn excerpt(text: &str, limit: usize) -> String {
     let compact = Regex::new(r"\s+").unwrap().replace_all(text.trim(), " ");
-    if compact.len() <= limit {
+    if compact.chars().count() <= limit {
         compact.to_string()
     } else {
-        format!("{}...", &compact[..limit.saturating_sub(3)])
+        format!("{}...", compact.chars().take(limit.saturating_sub(3)).collect::<String>())
     }
 }
 

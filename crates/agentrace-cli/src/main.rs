@@ -67,6 +67,8 @@ pub enum Commands {
     },
     /// Build 3D knowledge graph from embeddings
     BuildGraph,
+    /// Summarize all sessions using LLM
+    SummarizeSessions,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -87,6 +89,7 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::BuildGraph => run_build_graph(&cli.db),
+        Commands::SummarizeSessions => run_summarize_sessions(&cli.db),
     }
 }
 
@@ -129,14 +132,13 @@ fn run_analyze(db_path: &str, coach: bool) -> anyhow::Result<()> {
 fn run_build_graph(db_path: &str) -> anyhow::Result<()> {
     let store = Store::open(db_path)?;
 
-    let provider = agentrace_embedding::StubEmbeddingProvider::new();
-    // NOTE: For real embeddings, use:
-    // let provider = agentrace_embedding::candle::OnnxEmbeddingProvider::load()?;
+    println!("Loading embedding model (first run downloads ~90MB from HuggingFace)...");
+    let provider = agentrace_embedding::candle::OnnxEmbeddingProvider::load()?;
 
     let engine = agentrace_analysis::AnalysisEngine::new(store);
     let graph = engine.build_graph(&provider)?;
 
-    println!("Knowledge graph built:");
+    println!("\nKnowledge graph built:");
     println!("  nodes: {}", graph.nodes.len());
     println!("  edges: {}", graph.edges.len());
     println!(
@@ -146,6 +148,36 @@ fn run_build_graph(db_path: &str) -> anyhow::Result<()> {
         graph.variance_explained[2] * 100.0,
     );
 
+    if !graph.edges.is_empty() {
+        println!("\nTop similarity pairs:");
+        for edge in graph.edges.iter().take(5) {
+            let src_text = &graph.nodes[edge.source].text;
+            let tgt_text = &graph.nodes[edge.target].text;
+            let src_short: String = src_text.chars().take(60).collect();
+            let tgt_short: String = tgt_text.chars().take(60).collect();
+            println!("  sim={:.3} | {} | {}", edge.similarity, src_short, tgt_short);
+        }
+    }
+
+    println!("\nDashboard: run `agentrace-cli serve` and open http://localhost:3000");
+    Ok(())
+}
+
+fn run_summarize_sessions(db_path: &str) -> anyhow::Result<()> {
+    let store = Store::open(db_path)?;
+    let client = agentrace_llm::DeepSeekClient::from_env()?;
+    let engine = agentrace_analysis::AnalysisEngine::new(store);
+    let rt = tokio::runtime::Runtime::new()?;
+    let summaries = rt.block_on(engine.summarize_sessions(&client))?;
+
+    println!("Session Summaries ({}):\n", summaries.len());
+    for s in &summaries {
+        println!("  ── {} ──", s.title);
+        println!("  ID: {}", s.session_id);
+        println!("  Topics: {}", s.topics.join(", "));
+        println!("  Summary: {}", s.summary);
+        println!("  Language: {}\n", s.dominant_language);
+    }
     Ok(())
 }
 
@@ -207,7 +239,7 @@ fn run_import(db_path: &str, paths: &[String], force: bool, embed: bool) -> anyh
                 let is_opencode_db = file_path
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .map(|n| n == "opencode.db")
+                    .map(|n| n == "opencode.db" || n == "opencode-stable.db")
                     .unwrap_or(false);
 
                 if !is_supported && !is_opencode_db {
@@ -241,11 +273,12 @@ fn run_import(db_path: &str, paths: &[String], force: bool, embed: bool) -> anyh
     );
 
     if embed && imported > 0 {
-        println!("\nGenerating embeddings...");
-        let provider = agentrace_embedding::StubEmbeddingProvider::new();
+        println!("\nLoading embedding model (first run downloads ~90MB from HuggingFace)...");
+        let provider = agentrace_embedding::candle::OnnxEmbeddingProvider::load()?;
         let engine = agentrace_analysis::AnalysisEngine::new(store.clone());
         let stored = engine.embed_all(&provider)?;
         println!("  stored {} embeddings (dim={})", stored, provider.dimension());
+        println!("  Run `agentrace-cli build-graph` to compute the 3D knowledge graph.");
     }
 
     Ok(())

@@ -117,6 +117,11 @@ impl AnalysisEngine {
         // PCA: 384-dim → 3D
         let (coords, variance_explained) = graph::pca_reduce(&embeddings, 3)?;
 
+        // K-means clustering for query-level grouping
+        let k = ((embeddings.len() as f64).sqrt() as usize).min(20).max(3);
+        let cluster_assignments = graph::kmeans_cluster(&embeddings, k, 20);
+        tracing::info!("Clustered {} nodes into {} clusters", embeddings.len(), k);
+
         // Build nodes
         let mut nodes = Vec::new();
         for (i, row) in rows.iter().enumerate() {
@@ -127,6 +132,7 @@ impl AnalysisEngine {
                 x: coords[[i, 0]],
                 y: coords[[i, 1]],
                 z: coords[[i, 2]],
+                cluster_id: cluster_assignments[i] as u32,
             });
         }
 
@@ -137,7 +143,14 @@ impl AnalysisEngine {
         self.store.clear_graph_positions()?;
         for node in &nodes {
             self.store
-                .insert_graph_position(&node.utterance_id, node.x, node.y, node.z)?;
+                .insert_graph_position(&node.utterance_id, node.x, node.y, node.z, node.cluster_id)?;
+        }
+
+        // Store edges
+        self.store.clear_graph_edges()?;
+        for edge in &edges {
+            self.store
+                .insert_graph_edge(&nodes[edge.source].utterance_id, &nodes[edge.target].utterance_id, edge.similarity)?;
         }
 
         Ok(KnowledgeGraph {
@@ -148,8 +161,7 @@ impl AnalysisEngine {
     }
 
     /// Run LLM coaching analysis on all uncoached user utterances.
-    /// Uses the DeepSeek API to analyze each conversation turn and stores
-    /// per-utterance coaching feedback.
+    /// Groups utterances by conversation and sends them in batches for speed.
     pub async fn coach_all(
         &self,
         client: &agentrace_llm::DeepSeekClient,
@@ -160,59 +172,115 @@ impl AnalysisEngine {
             return Ok(0);
         }
 
-        let mut coached = 0usize;
+        // Build AI response lookup: find the assistant message after each user message
+        let all_rows = self.store.all_rows()?;
+        let ai_responses = build_ai_response_map(&all_rows);
+
+        // Group by conversation_id
+        let mut convs: std::collections::HashMap<String, Vec<&agentrace_storage::UtteranceRow>> =
+            std::collections::HashMap::new();
         for row in &uncoached {
-            // Find the next assistant response in the same conversation
-            let ai_response = self.find_ai_response(row);
+            convs.entry(row.conversation_id.clone())
+                .or_default()
+                .push(row);
+        }
 
-            tracing::info!("Coaching: {} — {}", &row.id[..12.min(row.id.len())], &row.text[..40.min(row.text.len())]);
+        let mut coached = 0usize;
+        let batch_size = 10usize;
 
-            let feedback = client
-                .coach_conversation(&row.text, ai_response.as_deref(), &row.source_agent)
-                .await?;
+        // Sort conversation ids for deterministic order
+        let mut conv_ids: Vec<&String> = convs.keys().collect();
+        conv_ids.sort();
 
-            let json = serde_json::to_string(&feedback)?;
-            let style = match &feedback.interaction_style {
-                agentrace_llm::InteractionStyle::Direct => "direct",
-                agentrace_llm::InteractionStyle::Exploratory => "exploratory",
-                agentrace_llm::InteractionStyle::Helpless => "helpless",
-                agentrace_llm::InteractionStyle::Vague => "vague",
-                agentrace_llm::InteractionStyle::WellStructured => "well_structured",
-            };
+        for conv_id in conv_ids {
+            let rows = &convs[conv_id];
+            for chunk in rows.chunks(batch_size) {
+                // Build batch turns
+                let turns: Vec<(String, Option<String>, String)> = chunk
+                    .iter()
+                    .enumerate()
+                    .map(|(_i, row)| {
+                        let ai = ai_responses.get(&row.id).cloned();
+                        (row.text.clone(), ai, row.source_agent.clone())
+                    })
+                    .collect();
 
-            self.store.insert_coaching(
-                &row.id,
-                &json,
-                feedback.clarity_score,
-                style,
-                "deepseek-chat",
-            )?;
-            coached += 1;
+                let count = turns.len();
+                let preview: String = chunk
+                    .iter()
+                    .map(|r| r.text.chars().take(40).collect::<String>())
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                tracing::info!(
+                    "Coaching batch conv={} size={}: {}",
+                    &conv_id[..16.min(conv_id.len())],
+                    count,
+                    preview,
+                );
+
+                let feedbacks = client.coach_batch(&turns).await?;
+
+                for (row, feedback) in chunk.iter().zip(feedbacks.iter()) {
+                    let json = serde_json::to_string(feedback)?;
+                    let style = match &feedback.interaction_style {
+                        agentrace_llm::InteractionStyle::Direct => "direct",
+                        agentrace_llm::InteractionStyle::Exploratory => "exploratory",
+                        agentrace_llm::InteractionStyle::Helpless => "helpless",
+                        agentrace_llm::InteractionStyle::Vague => "vague",
+                        agentrace_llm::InteractionStyle::WellStructured => "well_structured",
+                    };
+                    self.store.insert_coaching(
+                        &row.id,
+                        &json,
+                        feedback.clarity_score,
+                        style,
+                        "deepseek-chat",
+                    )?;
+                    coached += 1;
+                }
+            }
         }
 
         Ok(coached)
     }
+}
 
-    /// Find the next assistant utterance after this user utterance in the same conversation.
-    fn find_ai_response(&self, user_row: &agentrace_storage::UtteranceRow) -> Option<String> {
-        let all = self.store.all_rows().ok()?;
-        let mut found_user = false;
-        for r in &all {
-            if found_user && r.conversation_id == user_row.conversation_id && r.role == "assistant" {
-                // Truncate to 300 chars for the prompt
-                let truncated = if r.text.len() > 300 {
-                    format!("{}…", &r.text[..300])
+/// Build a map from user utterance id → next AI assistant response text
+/// within each conversation, ordered by turn_index.
+fn build_ai_response_map(
+    all_rows: &[agentrace_storage::UtteranceRow],
+) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+
+    // Group by conversation, sort by turn_index
+    let mut convs: std::collections::HashMap<String, Vec<&agentrace_storage::UtteranceRow>> =
+        std::collections::HashMap::new();
+    for row in all_rows {
+        convs.entry(row.conversation_id.clone())
+            .or_default()
+            .push(row);
+    }
+
+    for (_, mut rows) in convs {
+        rows.sort_by_key(|r| r.turn_index);
+        for w in rows.windows(2) {
+            let (prev, next) = (w[0], w[1]);
+            if prev.role == "user" && next.role == "assistant" {
+                let truncated: String = next.text.chars().take(300).collect();
+                let text = if next.text.chars().count() > 300 {
+                    format!("{}…", truncated)
                 } else {
-                    r.text.clone()
+                    next.text.clone()
                 };
-                return Some(truncated);
-            }
-            if r.id == user_row.id {
-                found_user = true;
+                map.insert(prev.id.clone(), text);
             }
         }
-        None
     }
+
+    map
+}
+
+impl AnalysisEngine {
 
     /// Generate a coaching summary from all analyzed utterances.
     pub fn coach_summary(&self) -> Result<CoachSummary> {
@@ -256,6 +324,41 @@ impl AnalysisEngine {
             common_issues: issues,
             top_tips: tips,
         })
+    }
+
+    /// Summarize all conversation sessions using LLM.
+    /// Groups utterances by conversation_id, sends batches to DeepSeek.
+    pub async fn summarize_sessions(
+        &self,
+        client: &agentrace_llm::DeepSeekClient,
+    ) -> Result<Vec<agentrace_llm::SessionSummary>> {
+        let rows = self.store.all_rows()?;
+        let mut convs: std::collections::HashMap<String, Vec<&agentrace_storage::UtteranceRow>> =
+            std::collections::HashMap::new();
+        for row in &rows {
+            convs.entry(row.conversation_id.clone()).or_default().push(row);
+        }
+
+        let mut all_summaries = Vec::new();
+        let batch_size = 5usize;
+        let conv_ids: Vec<&String> = convs.keys().collect();
+
+        for chunk in conv_ids.chunks(batch_size) {
+            let sessions: Vec<(String, String)> = chunk.iter().map(|id| {
+                let rows = &convs[*id];
+                let turns_text: String = rows.iter()
+                    .map(|r| format!("[{}]: {}", r.role, r.text))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                (id.to_string(), turns_text)
+            }).collect();
+
+            tracing::info!("Summarizing {} sessions", sessions.len());
+            let summaries = client.summarize_sessions(&sessions).await?;
+            all_summaries.extend(summaries);
+        }
+
+        Ok(all_summaries)
     }
 
     /// Run all analysis modules and return consolidated results.

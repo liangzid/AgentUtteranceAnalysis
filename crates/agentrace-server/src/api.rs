@@ -77,9 +77,10 @@ pub async fn get_utterances(State(state): State<Arc<AppState>>) -> Json<Value> {
     Json(json!({ "utterances": utterances }))
 }
 
-/// GET /api/v1/graph — 3D knowledge graph data.
+/// GET /api/v1/graph — 3D knowledge graph data (nodes + similarity edges).
 pub async fn get_graph(State(state): State<Arc<AppState>>) -> Json<Value> {
     let positions = state.store.all_graph_positions().unwrap_or_default();
+    let edges = state.store.all_graph_edges().unwrap_or_default();
     let nodes: Vec<Value> = positions
         .into_iter()
         .map(|p| {
@@ -90,10 +91,21 @@ pub async fn get_graph(State(state): State<Arc<AppState>>) -> Json<Value> {
                 "x": p.x,
                 "y": p.y,
                 "z": p.z,
+                "cluster_id": p.cluster_id,
             })
         })
         .collect();
-    Json(json!({ "nodes": nodes }))
+    let edge_list: Vec<Value> = edges
+        .into_iter()
+        .map(|e| {
+            json!({
+                "source": e.source,
+                "target": e.target,
+                "similarity": e.similarity,
+            })
+        })
+        .collect();
+    Json(json!({ "nodes": nodes, "edges": edge_list }))
 }
 
 /// GET /api/v1/coaching — LLM coaching results.

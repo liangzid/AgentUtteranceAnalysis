@@ -24,6 +24,8 @@ pub enum AgentKind {
     ClaudeCode,
     OpenClaw,
     KiloCode,
+    Reasonix,
+    CodeWhale,
     Generic(String),
 }
 
@@ -41,6 +43,10 @@ impl AgentKind {
             Self::OpenClaw
         } else if lower.contains("kilo") {
             Self::KiloCode
+        } else if lower.contains("reasonix") {
+            Self::Reasonix
+        } else if lower.contains("codewhale") {
+            Self::CodeWhale
         } else {
             Self::Generic("unknown".into())
         }
@@ -55,6 +61,8 @@ impl std::fmt::Display for AgentKind {
             Self::ClaudeCode => write!(f, "claude-code"),
             Self::OpenClaw => write!(f, "openclaw"),
             Self::KiloCode => write!(f, "kilo-code"),
+            Self::Reasonix => write!(f, "reasonix"),
+            Self::CodeWhale => write!(f, "codewhale"),
             Self::Generic(s) => write!(f, "{}", s),
         }
     }
@@ -192,6 +200,18 @@ mod tests {
     }
 
     #[test]
+    fn agent_kind_from_path_reasonix() {
+        let kind = AgentKind::from_path_hint("/home/user/.config/reasonix/sessions/sess.jsonl");
+        assert_eq!(kind, AgentKind::Reasonix);
+    }
+
+    #[test]
+    fn agent_kind_from_path_codewhale() {
+        let kind = AgentKind::from_path_hint("/home/user/.codewhale/sessions/sess.jsonl");
+        assert_eq!(kind, AgentKind::CodeWhale);
+    }
+
+    #[test]
     fn agent_kind_from_path_unknown() {
         let kind = AgentKind::from_path_hint("/tmp/random.txt");
         assert_eq!(kind, AgentKind::Generic("unknown".into()));
@@ -204,6 +224,8 @@ mod tests {
         assert_eq!(AgentKind::ClaudeCode.to_string(), "claude-code");
         assert_eq!(AgentKind::OpenClaw.to_string(), "openclaw");
         assert_eq!(AgentKind::KiloCode.to_string(), "kilo-code");
+        assert_eq!(AgentKind::Reasonix.to_string(), "reasonix");
+        assert_eq!(AgentKind::CodeWhale.to_string(), "codewhale");
         assert_eq!(AgentKind::Generic("custom".into()).to_string(), "custom");
     }
 

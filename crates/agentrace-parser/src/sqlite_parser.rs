@@ -79,7 +79,7 @@ pub fn parse_opencode_sqlite(path: &Path, agent: &AgentKind) -> Vec<Utterance> {
             .unwrap_or("")
             .to_lowercase();
 
-        if !["user", "human", "me", "you"].contains(&role.as_str()) {
+        if !["user", "human", "me", "you", "assistant", "agent"].contains(&role.as_str()) {
             continue;
         }
 
